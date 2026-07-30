@@ -1,41 +1,48 @@
 from customer_issue_agent.summary import build_records_summary
 
 
+def _record(
+    *,
+    platform: object = "Amazon",
+    issue_category: object = "function_use",
+    responsibility: object = "customer_service_training",
+    evidence: object = "likely",
+    feedback: dict | None = None,
+) -> dict:
+    return {
+        "analysis": {
+            "request": {"platform": platform},
+            "attribution": {
+                "issue_category": issue_category,
+                "primary_responsibility": responsibility,
+                "evidence_strength": evidence,
+            },
+        },
+        "feedback": feedback,
+    }
+
+
 def test_build_records_summary_counts_totals_and_dimensions():
     records = [
-        {
-            "analysis": {
-                "request": {"platform": "Amazon"},
-                "attribution": {
-                    "issue_category": "function_use",
-                    "primary_responsibility": "customer_service_training",
-                    "evidence_strength": "likely",
-                }
-            },
-            "feedback": {"accepted": True},
-        },
-        {
-            "analysis": {
-                "request": {"platform": "TikTok Shop"},
-                "attribution": {
-                    "issue_category": "function_use",
-                    "primary_responsibility": "product",
-                    "evidence_strength": "clear",
-                }
-            },
-            "feedback": {"accepted": False},
-        },
-        {
-            "analysis": {
-                "request": {"platform": "Amazon"},
-                "attribution": {
-                    "issue_category": "product_fault",
-                    "primary_responsibility": "product",
-                    "evidence_strength": "likely",
-                }
-            },
-            "feedback": None,
-        },
+        _record(
+            platform="Amazon",
+            issue_category="function_use",
+            responsibility="customer_service_training",
+            feedback={"accepted": True},
+        ),
+        _record(
+            platform="TikTok Shop",
+            issue_category="function_use",
+            responsibility="product",
+            evidence="clear",
+            feedback={"accepted": False},
+        ),
+        _record(
+            platform="Amazon",
+            issue_category="product_fault",
+            responsibility="product",
+            feedback=None,
+        ),
     ]
 
     summary = build_records_summary(records)
@@ -66,6 +73,55 @@ def test_build_records_summary_counts_totals_and_dimensions():
     ]
 
 
+def test_build_records_summary_returns_top_issue_clusters():
+    records = [
+        _record(platform="Amazon", issue_category="function_use", responsibility="customer_service_training"),
+        _record(platform="Amazon", issue_category="function_use", responsibility="customer_service_training"),
+        _record(platform="TikTok Shop", issue_category="product_fault", responsibility="product"),
+        _record(platform="TikTok Shop", issue_category="product_fault", responsibility="product"),
+        _record(platform="Amazon", issue_category="installation", responsibility="customer"),
+        _record(platform="eBay", issue_category="logistics", responsibility="platform_policy"),
+        _record(platform="Walmart Marketplace", issue_category="quality_expectation", responsibility="product"),
+        _record(platform="Shopee", issue_category="function_use", responsibility="customer_service_training"),
+        _record(platform="Temu", issue_category="installation", responsibility="customer"),
+    ]
+
+    summary = build_records_summary(records)
+
+    assert summary["top_issue_clusters"] == [
+        {
+            "platform": "Amazon",
+            "issue_category": "function_use",
+            "responsibility": "customer_service_training",
+            "count": 2,
+        },
+        {
+            "platform": "TikTok Shop",
+            "issue_category": "product_fault",
+            "responsibility": "product",
+            "count": 2,
+        },
+        {
+            "platform": "Amazon",
+            "issue_category": "installation",
+            "responsibility": "customer",
+            "count": 1,
+        },
+        {
+            "platform": "eBay",
+            "issue_category": "logistics",
+            "responsibility": "platform_policy",
+            "count": 1,
+        },
+        {
+            "platform": "Shopee",
+            "issue_category": "function_use",
+            "responsibility": "customer_service_training",
+            "count": 1,
+        },
+    ]
+
+
 def test_build_records_summary_handles_empty_and_unknown_values():
     assert build_records_summary([]) == {
         "total_records": 0,
@@ -76,6 +132,7 @@ def test_build_records_summary_handles_empty_and_unknown_values():
         "responsibilities": [],
         "evidence_strengths": [],
         "feedback_statuses": [],
+        "top_issue_clusters": [],
     }
 
     summary = build_records_summary(
@@ -90,3 +147,11 @@ def test_build_records_summary_handles_empty_and_unknown_values():
     assert summary["responsibilities"] == [{"value": "unknown", "count": 2}]
     assert summary["evidence_strengths"] == [{"value": "unknown", "count": 2}]
     assert summary["feedback_statuses"] == [{"value": "unreviewed", "count": 2}]
+    assert summary["top_issue_clusters"] == [
+        {
+            "platform": "unknown",
+            "issue_category": "unknown",
+            "responsibility": "unknown",
+            "count": 2,
+        }
+    ]

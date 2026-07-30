@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
+IssueClusterKey = tuple[str, str, str]
+
 
 def build_records_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
     platforms: Counter[str] = Counter()
@@ -10,6 +12,7 @@ def build_records_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
     responsibilities: Counter[str] = Counter()
     evidence_strengths: Counter[str] = Counter()
     feedback_statuses: Counter[str] = Counter()
+    issue_clusters: Counter[IssueClusterKey] = Counter()
     reviewed_records = 0
     corrected_records = 0
 
@@ -17,10 +20,14 @@ def build_records_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
         analysis = record.get("analysis") or {}
         request = analysis.get("request") or {}
         attribution = analysis.get("attribution") or {}
-        platforms[_value(request.get("platform"))] += 1
-        issue_categories[_value(attribution.get("issue_category"))] += 1
-        responsibilities[_value(attribution.get("primary_responsibility"))] += 1
+        platform = _value(request.get("platform"))
+        issue_category = _value(attribution.get("issue_category"))
+        responsibility = _value(attribution.get("primary_responsibility"))
+        platforms[platform] += 1
+        issue_categories[issue_category] += 1
+        responsibilities[responsibility] += 1
         evidence_strengths[_value(attribution.get("evidence_strength"))] += 1
+        issue_clusters[(platform, issue_category, responsibility)] += 1
 
         status = _feedback_status(record.get("feedback"))
         feedback_statuses[status] += 1
@@ -38,6 +45,7 @@ def build_records_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
         "responsibilities": _rank(responsibilities),
         "evidence_strengths": _rank(evidence_strengths),
         "feedback_statuses": _rank(feedback_statuses),
+        "top_issue_clusters": _rank_issue_clusters(issue_clusters),
     }
 
 
@@ -51,6 +59,31 @@ def _rank(counter: Counter[str]) -> list[dict[str, int | str]]:
     return [
         {"value": value, "count": count}
         for value, count in sorted(counter.items(), key=lambda item: (-item[1], item[0]))
+    ]
+
+
+def _rank_issue_clusters(
+    counter: Counter[IssueClusterKey], limit: int = 5
+) -> list[dict[str, int | str]]:
+    return [
+        {
+            "platform": platform,
+            "issue_category": issue_category,
+            "responsibility": responsibility,
+            "count": count,
+        }
+        for (platform, issue_category, responsibility), count in sorted(
+            counter.items(),
+            key=lambda item: (
+                -item[1],
+                item[0][0].casefold(),
+                item[0][0],
+                item[0][1].casefold(),
+                item[0][1],
+                item[0][2].casefold(),
+                item[0][2],
+            ),
+        )[:limit]
     ]
 
 
