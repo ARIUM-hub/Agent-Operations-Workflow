@@ -433,6 +433,9 @@ def test_records_summary_endpoint_returns_counts(tmp_path):
     assert payload["responsibilities"]
     assert payload["evidence_strengths"]
     assert payload["feedback_statuses"] == [{"value": "corrected", "count": 1}]
+    assert payload["top_issue_clusters"]
+    assert payload["top_issue_clusters"][0]["platform"] == "Amazon"
+    assert payload["top_issue_clusters"][0]["count"] == 1
 
 
 def test_records_summary_endpoint_returns_empty_summary(tmp_path):
@@ -448,6 +451,7 @@ def test_records_summary_endpoint_returns_empty_summary(tmp_path):
     assert payload["corrected_records"] == 0
     assert payload["platforms"] == []
     assert payload["issue_categories"] == []
+    assert payload["top_issue_clusters"] == []
 
 
 def test_index_contains_summary_dashboard_region(tmp_path):
@@ -478,6 +482,9 @@ def test_static_app_js_contains_summary_dashboard_hooks(tmp_path):
     assert "summaryDistribution" in script
     assert "平台分布" in script
     assert "summary.platforms" in script
+    assert "summary.top_issue_clusters" in script
+    assert "summaryIssueClusters" in script
+    assert "高频问题" in script
     assert "bindSummaryPlatformFilters" in script
     assert "applySummaryPlatformFilter" in script
     assert "data-summary-platform-filter" in script

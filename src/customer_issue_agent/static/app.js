@@ -448,6 +448,7 @@ function renderRecordsSummary(summary) {
       ${summaryMetric("已修正", summary.corrected_records)}
     </div>
     <div class="summary-grid">
+      ${summaryIssueClusters(summary.top_issue_clusters)}
       ${summaryDistribution("平台分布", "platform", summary.platforms)}
       ${summaryDistribution("问题类型", "issue_category", summary.issue_categories)}
       ${summaryDistribution("责任方", "responsibility", summary.responsibilities)}
@@ -456,6 +457,30 @@ function renderRecordsSummary(summary) {
     </div>
   `;
   bindSummaryPlatformFilters(container);
+}
+
+function summaryIssueClusters(items = []) {
+  const rows = items.length
+    ? items.map((item) => `
+        <li>
+          <span class="issue-cluster-label">
+            <strong>${escapeHtml(item.platform)}</strong>
+            <small>
+              ${escapeHtml(labelFor("issue_category", item.issue_category))}
+              / ${escapeHtml(labelFor("responsibility", item.responsibility))}
+            </small>
+          </span>
+          <strong>${escapeHtml(item.count)}</strong>
+        </li>
+      `).join("")
+    : `<li><span>暂无数据</span><strong>0</strong></li>`;
+
+  return `
+    <article class="summary-card distribution-card issue-cluster-card">
+      <h3>高频问题</h3>
+      <ul class="distribution-list">${rows}</ul>
+    </article>
+  `;
 }
 
 function summaryMetric(label, value) {
