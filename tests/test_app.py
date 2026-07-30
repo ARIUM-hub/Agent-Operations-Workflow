@@ -489,6 +489,16 @@ def test_static_app_js_contains_summary_dashboard_hooks(tmp_path):
     assert "applySummaryPlatformFilter" in script
     assert "data-summary-platform-filter" in script
     assert "scrollIntoView" in script
+    assert "summaryIssueClusterRow" in script
+    assert "isSummaryIssueClusterFilterable" in script
+    assert "selectHasOption" in script
+    assert "data-summary-issue-cluster-filter" in script
+    assert "data-summary-cluster-platform" in script
+    assert "data-summary-cluster-issue-category" in script
+    assert "data-summary-cluster-responsibility" in script
+    assert "bindSummaryIssueClusterFilters" in script
+    assert "applySummaryIssueClusterFilter" in script
+    assert "scrollToRecentRecords" in script
 
 
 def test_styles_cover_summary_dashboard_components(tmp_path):

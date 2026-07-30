@@ -457,22 +457,12 @@ function renderRecordsSummary(summary) {
     </div>
   `;
   bindSummaryPlatformFilters(container);
+  bindSummaryIssueClusterFilters(container);
 }
 
 function summaryIssueClusters(items = []) {
   const rows = items.length
-    ? items.map((item) => `
-        <li>
-          <span class="issue-cluster-label">
-            <strong>${escapeHtml(item.platform)}</strong>
-            <small>
-              ${escapeHtml(labelFor("issue_category", item.issue_category))}
-              / ${escapeHtml(labelFor("responsibility", item.responsibility))}
-            </small>
-          </span>
-          <strong>${escapeHtml(item.count)}</strong>
-        </li>
-      `).join("")
+    ? items.map(summaryIssueClusterRow).join("")
     : `<li><span>暂无数据</span><strong>0</strong></li>`;
 
   return `
@@ -481,6 +471,62 @@ function summaryIssueClusters(items = []) {
       <ul class="distribution-list">${rows}</ul>
     </article>
   `;
+}
+
+function summaryIssueClusterRow(item) {
+  const platform = String(item.platform ?? "").trim();
+  const issueCategory = String(item.issue_category ?? "").trim();
+  const responsibility = String(item.responsibility ?? "").trim();
+  const count = item.count ?? 0;
+  const issueLabel = labelFor("issue_category", issueCategory);
+  const responsibilityLabel = labelFor("responsibility", responsibility);
+  const content = `
+    <span class="issue-cluster-label">
+      <strong>${escapeHtml(platform || "unknown")}</strong>
+      <small>
+        ${escapeHtml(issueLabel)} / ${escapeHtml(responsibilityLabel)}
+      </small>
+    </span>
+    <strong>${escapeHtml(count)}</strong>
+  `;
+
+  if (!isSummaryIssueClusterFilterable(platform, issueCategory, responsibility)) {
+    return `<li>${content}</li>`;
+  }
+
+  const ariaLabel = `筛选高频问题：${platform}，${issueLabel}，责任方${responsibilityLabel}，共${count}条`;
+  return `
+    <li>
+      <button
+        class="issue-cluster-filter"
+        type="button"
+        data-summary-issue-cluster-filter
+        data-summary-cluster-platform="${escapeHtml(platform)}"
+        data-summary-cluster-issue-category="${escapeHtml(issueCategory)}"
+        data-summary-cluster-responsibility="${escapeHtml(responsibility)}"
+        aria-label="${escapeHtml(ariaLabel)}"
+      >${content}</button>
+    </li>
+  `;
+}
+
+function isSummaryIssueClusterFilterable(platform, issueCategory, responsibility) {
+  const issueFilter = document.getElementById("issue-filter");
+  const responsibilityFilter = document.getElementById("responsibility-filter");
+  return Boolean(
+    platform
+    && platform.toLowerCase() !== "unknown"
+    && selectHasOption(issueFilter, issueCategory)
+    && selectHasOption(responsibilityFilter, responsibility)
+  );
+}
+
+function selectHasOption(select, value) {
+  return Boolean(
+    select
+    && value
+    && Array.from(select.options).some((option) => option.value === value)
+  );
 }
 
 function summaryMetric(label, value) {
@@ -536,6 +582,22 @@ function bindSummaryPlatformFilters(root = document) {
   });
 }
 
+function bindSummaryIssueClusterFilters(root = document) {
+  root.querySelectorAll("[data-summary-issue-cluster-filter]").forEach((button) => {
+    if (button.dataset.bound === "true") {
+      return;
+    }
+    button.dataset.bound = "true";
+    button.addEventListener("click", () => {
+      applySummaryIssueClusterFilter({
+        platform: button.dataset.summaryClusterPlatform || "",
+        issueCategory: button.dataset.summaryClusterIssueCategory || "",
+        responsibility: button.dataset.summaryClusterResponsibility || "",
+      });
+    });
+  });
+}
+
 function applySummaryPlatformFilter(platform) {
   const value = platform.trim();
   const input = document.getElementById("platform-filter");
@@ -545,7 +607,35 @@ function applySummaryPlatformFilter(platform) {
 
   input.value = value;
   refreshRecordFilterViews();
+  scrollToRecentRecords();
+}
 
+function applySummaryIssueClusterFilter({ platform, issueCategory, responsibility }) {
+  const platformValue = String(platform || "").trim();
+  const platformFilter = document.getElementById("platform-filter");
+  const issueFilter = document.getElementById("issue-filter");
+  const responsibilityFilter = document.getElementById("responsibility-filter");
+
+  if (
+    !platformFilter
+    || !issueFilter
+    || !responsibilityFilter
+    || !platformValue
+    || platformValue.toLowerCase() === "unknown"
+    || !selectHasOption(issueFilter, issueCategory)
+    || !selectHasOption(responsibilityFilter, responsibility)
+  ) {
+    return;
+  }
+
+  platformFilter.value = platformValue;
+  issueFilter.value = issueCategory;
+  responsibilityFilter.value = responsibility;
+  refreshRecordFilterViews();
+  scrollToRecentRecords();
+}
+
+function scrollToRecentRecords() {
   const recentRecords = document.getElementById("recent-records");
   const target = recentRecords?.closest("section") || recentRecords;
   if (target) {
