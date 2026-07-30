@@ -559,6 +559,21 @@ textarea:focus-visible {
   font-size: 16px;
 }
 
+.issue-cluster-card {
+  grid-column: span 2;
+}
+
+.issue-cluster-label {
+  display: grid;
+  gap: 4px;
+}
+
+.issue-cluster-label small {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .distribution-list {
   display: grid;
   gap: 10px;
@@ -600,6 +615,10 @@ textarea:focus-visible {
   .summary-metrics,
   .summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .issue-cluster-card {
+    grid-column: span 1;
   }
 
   .record-filter {
