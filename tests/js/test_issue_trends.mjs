@@ -246,3 +246,81 @@ test("页面初始化只调用一次趋势加载", () => {
 
   assert.equal(trendLoads, 1);
 });
+
+function createSubmitForm(endpoint) {
+  const button = new FakeElement({ textContent: "提交" });
+  const form = new FakeElement({ dataset: { endpoint } });
+  form.setSelector("button[type='submit']", button);
+  const message = new FakeElement();
+  form.setSelector(".form-message", message);
+  return { button, form, message };
+}
+
+test("单条分析成功后概览和趋势各刷新一次", async () => {
+  const { context } = loadApp();
+  const { form } = createSubmitForm("/api/analyze");
+  const errorBox = new FakeElement();
+  const calls = [];
+  context.fetch = async () => ({
+    ok: true,
+    json: async () => ({ record_id: "one", analysis: {} }),
+  });
+  context.renderAnalysisResult = () => calls.push("render");
+  context.bindFeedbackForms = () => calls.push("bind-feedback");
+  context.prependRecentRecord = () => calls.push("recent");
+  context.loadRecordsSummary = () => calls.push("summary");
+  context.loadIssueTrends = () => calls.push("trends");
+
+  await context.submitAnalysisForm(form, errorBox);
+
+  assert.equal(calls.filter((value) => value === "summary").length, 1);
+  assert.equal(calls.filter((value) => value === "trends").length, 1);
+  assert.equal(form.resetCalls, 1);
+});
+
+test("批量分析成功后按批次刷新概览和趋势而不是按记录刷新", async () => {
+  const { context } = loadApp();
+  const { form } = createSubmitForm("/api/analyze-batch-file");
+  const errorBox = new FakeElement();
+  const calls = [];
+  context.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      batch_id: "batch",
+      count: 2,
+      records: [{ record_id: "one" }, { record_id: "two" }],
+    }),
+  });
+  context.renderBatchResults = () => calls.push("render");
+  context.prependRecentRecord = () => calls.push("recent");
+  context.loadRecordsSummary = () => calls.push("summary");
+  context.loadIssueTrends = () => calls.push("trends");
+
+  await context.submitBatchForm(form, errorBox);
+
+  assert.equal(calls.filter((value) => value === "recent").length, 2);
+  assert.equal(calls.filter((value) => value === "summary").length, 1);
+  assert.equal(calls.filter((value) => value === "trends").length, 1);
+  assert.equal(form.resetCalls, 1);
+});
+
+test("反馈保存成功不刷新固定问题趋势", async () => {
+  const { context } = loadApp();
+  const { form } = createSubmitForm("/api/records/one/feedback");
+  let trendLoads = 0;
+  context.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      record_id: "one",
+      feedback: { accepted: true, note: "" },
+    }),
+  });
+  context.syncFeedbackUi = () => {};
+  context.refreshRecordFilterViews = () => {};
+  context.loadRecordsSummary = () => {};
+  context.loadIssueTrends = () => { trendLoads += 1; };
+
+  await context.submitFeedbackForm(form);
+
+  assert.equal(trendLoads, 0);
+});

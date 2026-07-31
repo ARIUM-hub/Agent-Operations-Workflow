@@ -118,6 +118,8 @@ async function submitAnalysisForm(form, errorBox) {
     renderAnalysisResult(payload);
     bindFeedbackForms(document.getElementById("analysis-result"));
     prependRecentRecord(payload);
+    loadRecordsSummary();
+    loadIssueTrends();
     form.reset();
   } catch (error) {
     showError(errorBox, error.message || "分析失败，请检查输入后重试。");
@@ -174,6 +176,8 @@ async function submitBatchForm(form, errorBox) {
     }
     renderBatchResults(payload);
     payload.records.forEach((record) => prependRecentRecord(record));
+    loadRecordsSummary();
+    loadIssueTrends();
     form.reset();
   } catch (error) {
     showError(errorBox, error.message || "批量分析失败，请检查文件后重试。");
