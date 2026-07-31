@@ -103,9 +103,9 @@ def _parse_created_at(value: object) -> datetime | None:
         return None
     try:
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except (TypeError, ValueError):
+        return _as_utc(parsed)
+    except (OverflowError, TypeError, ValueError):
         return None
-    return _as_utc(parsed)
 
 
 def _as_utc(value: datetime) -> datetime:

@@ -171,3 +171,14 @@ def test_build_issue_trends_handles_empty_unknown_and_period_fallback():
             "significant_increase": False,
         }
     ]
+
+
+def test_build_issue_trends_skips_timezone_conversion_overflow():
+    result = build_issue_trends(
+        [_record("0001-01-01T00:00:00+14:00")],
+        now=NOW,
+    )
+
+    assert result["current_period"]["total_records"] == 0
+    assert result["previous_period"]["total_records"] == 0
+    assert result["clusters"] == []
