@@ -972,3 +972,23 @@ def test_styles_cover_issue_trend_components(tmp_path):
     assert ".trend-change.is-up" in css
     assert ".trend-change.is-down" in css
     assert ".trend-alert" in css
+
+
+def test_static_app_js_contains_issue_trend_hooks(tmp_path):
+    app = create_app(storage_path=tmp_path / "analyses.jsonl")
+    client = TestClient(app)
+
+    response = client.get("/static/app.js")
+
+    assert response.status_code == 200
+    script = response.text
+    assert "loadIssueTrends" in script
+    assert "renderIssueTrends" in script
+    assert "issueTrendRows" in script
+    assert "issueTrendRow" in script
+    assert "trendChangeLabel" in script
+    assert "bindIssueTrendFilters" in script
+    assert "applyIssueTrendFilter" in script
+    assert "/api/records/trends?period=7d" in script
+    assert "data-issue-trend-filter" in script
+    assert "明显上升" in script

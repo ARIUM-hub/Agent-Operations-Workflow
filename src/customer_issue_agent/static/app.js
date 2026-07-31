@@ -38,6 +38,7 @@ document.addEventListener("DOMContentLoaded", () => {
   bindFeedbackForms(document);
   bindSummaryRange();
   loadRecordsSummary();
+  loadIssueTrends();
   bindFilteredExport();
   bindRecordFilters();
   bindReviewQueueToggle();
@@ -504,6 +505,135 @@ async function loadRecordsSummary() {
   } catch (error) {
     container.innerHTML = `<p class="summary-error">${escapeHtml(error.message || "概览加载失败，请刷新页面重试。")}</p>`;
   }
+}
+
+async function loadIssueTrends() {
+  const container = document.getElementById("trend-content");
+  if (!container) {
+    return;
+  }
+
+  try {
+    const response = await fetch("/api/records/trends?period=7d");
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(readError(payload));
+    }
+    renderIssueTrends(payload);
+  } catch (error) {
+    container.innerHTML = `<p class="trend-error">${escapeHtml(error.message || "趋势加载失败，请刷新页面重试。")}</p>`;
+  }
+}
+
+function renderIssueTrends(trends) {
+  const container = document.getElementById("trend-content");
+  if (!container) {
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="summary-metrics trend-metrics">
+      ${summaryMetric("近 7 天记录", trends.current_period?.total_records ?? 0)}
+      ${summaryMetric("前 7 天记录", trends.previous_period?.total_records ?? 0)}
+      ${summaryMetric("净变化", trendChangeLabel(trends.total_delta ?? 0))}
+    </div>
+    <article class="summary-card trend-card">
+      <h3>变化最大的 Top 5 问题簇</h3>
+      ${issueTrendRows(trends.clusters || [])}
+    </article>
+  `;
+  bindIssueTrendFilters(container);
+}
+
+function issueTrendRows(items = []) {
+  const rows = items.slice(0, 5);
+  if (!rows.length) {
+    return `<p class="trend-empty">最近两个周期暂无明显变化。</p>`;
+  }
+  return `<ul class="trend-list">${rows.map(issueTrendRow).join("")}</ul>`;
+}
+
+function issueTrendRow(item) {
+  const platform = String(item.platform ?? "").trim();
+  const issueCategory = String(item.issue_category ?? "").trim();
+  const responsibility = String(item.responsibility ?? "").trim();
+  const currentCount = Number(item.current_count) || 0;
+  const previousCount = Number(item.previous_count) || 0;
+  const delta = Number(item.delta) || 0;
+  const directionClass = delta >= 0 ? "is-up" : "is-down";
+  const issueLabel = labelFor("issue_category", issueCategory);
+  const responsibilityLabel = labelFor("responsibility", responsibility);
+  const alert = item.significant_increase
+    ? `<span class="trend-alert">明显上升</span>`
+    : "";
+  const content = `
+    <span class="trend-cluster-label">
+      <strong>${escapeHtml(platform || "unknown")}</strong>
+      <small>${escapeHtml(issueLabel)} / ${escapeHtml(responsibilityLabel)}</small>
+    </span>
+    <span class="trend-counts">
+      <span>本期 ${escapeHtml(currentCount)}</span>
+      <span>上期 ${escapeHtml(previousCount)}</span>
+      <span class="trend-change ${directionClass}">${escapeHtml(trendChangeLabel(delta))}</span>
+      ${alert}
+    </span>
+  `;
+
+  if (!isSummaryIssueClusterFilterable(platform, issueCategory, responsibility)) {
+    return `<li class="trend-row">${content}</li>`;
+  }
+
+  const ariaLabel = `筛选趋势问题：${platform}，${issueLabel}，责任方${responsibilityLabel}，本期${currentCount}条，上期${previousCount}条`;
+  return `
+    <li class="trend-row">
+      <button
+        class="trend-row-button"
+        type="button"
+        data-issue-trend-filter
+        data-trend-platform="${escapeHtml(platform)}"
+        data-trend-issue-category="${escapeHtml(issueCategory)}"
+        data-trend-responsibility="${escapeHtml(responsibility)}"
+        aria-label="${escapeHtml(ariaLabel)}"
+      >${content}</button>
+    </li>
+  `;
+}
+
+function trendChangeLabel(value) {
+  const number = Number(value) || 0;
+  return number > 0 ? `+${number}` : String(number);
+}
+
+function bindIssueTrendFilters(root = document) {
+  root.querySelectorAll("[data-issue-trend-filter]").forEach((button) => {
+    if (button.dataset.bound === "true") {
+      return;
+    }
+    button.dataset.bound = "true";
+    button.addEventListener("click", () => {
+      applyIssueTrendFilter({
+        platform: button.dataset.trendPlatform || "",
+        issueCategory: button.dataset.trendIssueCategory || "",
+        responsibility: button.dataset.trendResponsibility || "",
+      });
+    });
+  });
+}
+
+function applyIssueTrendFilter({ platform, issueCategory, responsibility }) {
+  const range = document.getElementById("summary-range");
+  const platformFilter = document.getElementById("platform-filter");
+  if (
+    !range
+    || !platformFilter
+    || !isSummaryIssueClusterFilterable(platform, issueCategory, responsibility)
+  ) {
+    return;
+  }
+
+  range.value = "7d";
+  applySummaryIssueClusterFilter({ platform, issueCategory, responsibility });
+  loadRecordsSummary();
 }
 
 function renderRecordsSummary(summary) {
