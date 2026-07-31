@@ -314,6 +314,69 @@ function bindFeedbackForms(root) {
   });
 }
 
+function feedbackUiState(feedback) {
+  const accepted = feedback?.accepted === true;
+  return {
+    value: accepted ? "accepted" : "corrected",
+    label: accepted ? "已认可" : "已修正",
+    note: String(feedback?.note || "").trim(),
+  };
+}
+
+function syncFeedbackUi(recordId, feedback) {
+  const state = feedbackUiState(feedback);
+  document.querySelectorAll("[data-record-id]").forEach((record) => {
+    if (record.dataset.recordId === String(recordId)) {
+      updateRecordFeedbackView(record, state);
+    }
+  });
+  updateBatchPendingCount();
+}
+
+function updateRecordFeedbackView(record, state) {
+  record.dataset.feedbackStatus = state.value;
+  updateFeedbackPill(record, state);
+
+  const status = record.querySelector("[data-record-feedback-status]");
+  const note = record.querySelector("[data-record-feedback-note]");
+  if (status) {
+    status.textContent = state.label;
+  }
+  if (note) {
+    note.textContent = state.note || "暂无信息";
+  }
+  if (record.dataset.searchBaseText !== undefined) {
+    record.dataset.searchText = [record.dataset.searchBaseText, state.note].filter(Boolean).join(" ");
+  }
+}
+
+function updateFeedbackPill(record, state) {
+  const meta = record.querySelector("[data-record-meta]");
+  if (!meta) {
+    return;
+  }
+
+  let pill = meta.querySelector(".feedback-pill");
+  if (!pill) {
+    pill = document.createElement("span");
+    pill.classList.add("feedback-pill");
+    meta.appendChild(pill);
+  }
+  pill.textContent = state.label;
+}
+
+function updateBatchPendingCount() {
+  const batchList = document.querySelector("#batch-results .batch-list");
+  const pending = document.querySelector("[data-batch-pending-count]");
+  if (!batchList || !pending) {
+    return;
+  }
+
+  pending.textContent = String(
+    batchList.querySelectorAll('[data-feedback-status="unreviewed"]').length,
+  );
+}
+
 async function submitFeedbackForm(form) {
   const button = form.querySelector("button[type='submit']");
   const message = form.querySelector(".form-message");

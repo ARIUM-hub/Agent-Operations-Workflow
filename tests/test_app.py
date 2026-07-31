@@ -252,6 +252,11 @@ def test_static_app_js_contains_batch_and_feedback_hooks(tmp_path):
     assert "batchSummaryDistribution" in script
     assert "本批次摘要" in script
     assert "待复核" in script
+    assert "feedbackUiState" in script
+    assert "syncFeedbackUi" in script
+    assert "updateRecordFeedbackView" in script
+    assert "updateFeedbackPill" in script
+    assert "updateBatchPendingCount" in script
 
 
 def test_recent_records_expose_feedback_sync_dom_contract(tmp_path):
