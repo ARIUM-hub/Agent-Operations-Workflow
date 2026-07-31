@@ -101,6 +101,7 @@ def create_app(storage_path: Path | None = None) -> FastAPI:
     @app.get("/api/records/export.csv")
     async def export_records_csv(
         platform: str = "",
+        platform_match: str = "",
         issue_category: str = "",
         responsibility: str = "",
         feedback_status: str = "",
@@ -110,6 +111,7 @@ def create_app(storage_path: Path | None = None) -> FastAPI:
         records = filter_records(
             store.list_records(),
             platform=platform,
+            platform_match=platform_match,
             issue_category=issue_category,
             responsibility=responsibility,
             feedback_status=feedback_status,
@@ -125,6 +127,7 @@ def create_app(storage_path: Path | None = None) -> FastAPI:
     @app.get("/api/records/export-count")
     async def export_records_count(
         platform: str = "",
+        platform_match: str = "",
         issue_category: str = "",
         responsibility: str = "",
         feedback_status: str = "",
@@ -134,6 +137,7 @@ def create_app(storage_path: Path | None = None) -> FastAPI:
         records = filter_records(
             store.list_records(),
             platform=platform,
+            platform_match=platform_match,
             issue_category=issue_category,
             responsibility=responsibility,
             feedback_status=feedback_status,

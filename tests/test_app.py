@@ -764,6 +764,52 @@ def test_export_records_count_endpoint_matches_filtered_export_scope(tmp_path):
     assert response.json() == {"count": 1}
 
 
+def test_export_records_count_endpoint_supports_exact_platform_match(tmp_path):
+    storage_path = tmp_path / "analyses.jsonl"
+    now = datetime.now(UTC)
+    _write_jsonl_records(
+        storage_path,
+        [
+            _stored_record("amazon", platform="Amazon", created_at=now),
+            _stored_record("amazon-us", platform="Amazon US", created_at=now),
+        ],
+    )
+    app = create_app(storage_path=storage_path)
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/records/export-count",
+        params={"platform": "Amazon", "platform_match": "exact"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"count": 1}
+
+
+def test_export_records_csv_endpoint_supports_exact_platform_match(tmp_path):
+    storage_path = tmp_path / "analyses.jsonl"
+    now = datetime.now(UTC)
+    _write_jsonl_records(
+        storage_path,
+        [
+            _stored_record("amazon", platform="Amazon", created_at=now),
+            _stored_record("amazon-us", platform="Amazon US", created_at=now),
+        ],
+    )
+    app = create_app(storage_path=storage_path)
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/records/export.csv",
+        params={"platform": "Amazon", "platform_match": "exact"},
+    )
+
+    assert response.status_code == 200
+    text = response.content.decode("utf-8-sig")
+    assert "amazon," in text
+    assert "amazon-us" not in text
+
+
 def test_export_records_count_endpoint_returns_zero_for_empty_filter_result(tmp_path):
     storage_path = tmp_path / "analyses.jsonl"
     _write_jsonl_records(

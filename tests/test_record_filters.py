@@ -45,6 +45,19 @@ def test_filter_records_matches_platform_keyword_case_insensitively():
     assert [record["id"] for record in filtered] == ["one"]
 
 
+def test_filter_records_supports_exact_platform_match_without_changing_keyword_default():
+    records = [
+        _record("amazon", platform="Amazon"),
+        _record("amazon-us", platform="Amazon US"),
+    ]
+
+    keyword_matches = filter_records(records, platform="amazon")
+    exact_matches = filter_records(records, platform="amazon", platform_match="exact")
+
+    assert [record["id"] for record in keyword_matches] == ["amazon", "amazon-us"]
+    assert [record["id"] for record in exact_matches] == ["amazon"]
+
+
 def test_filter_records_matches_enums_and_feedback_status():
     records = [
         _record("one", issue_category="function_use", responsibility="customer_service_training"),
@@ -88,6 +101,18 @@ def test_filter_records_matches_recent_7_day_range():
     records = [
         {**_record("recent"), "created_at": "2026-07-25T12:00:00+00:00"},
         {**_record("old"), "created_at": "2026-07-10T12:00:00+00:00"},
+    ]
+
+    filtered = filter_records(records, range="7d", now=now)
+
+    assert [record["id"] for record in filtered] == ["recent"]
+
+
+def test_filter_records_active_range_excludes_future_records():
+    now = datetime(2026, 7, 29, 12, 0, tzinfo=UTC)
+    records = [
+        {**_record("recent"), "created_at": "2026-07-29T12:00:00+00:00"},
+        {**_record("future"), "created_at": "2026-07-29T12:00:01+00:00"},
     ]
 
     filtered = filter_records(records, range="7d", now=now)

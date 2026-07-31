@@ -118,6 +118,14 @@ function cluster(overrides = {}) {
   };
 }
 
+function deferred() {
+  let resolve;
+  const promise = new Promise((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 test("趋势变化文案保留正负方向", () => {
   const { context } = loadApp();
 
@@ -175,11 +183,31 @@ test("有效趋势下钻设置七天范围并保留关键词与复核状态", ()
 
   assert.equal(elements.get("summary-range").value, "7d");
   assert.equal(elements.get("platform-filter").value, "Amazon");
+  assert.equal(elements.get("platform-filter").dataset.matchMode, "exact");
   assert.equal(elements.get("issue-filter").value, "function_use");
   assert.equal(elements.get("responsibility-filter").value, "customer_service_training");
   assert.equal(elements.get("record-search").value, "保留关键词");
   assert.equal(elements.get("feedback-filter").value, "unreviewed");
+  assert.equal(context.buildExportFilterParams().get("platform_match"), "exact");
   assert.deepEqual(calls, ["filters", "scroll", "summary"]);
+});
+
+test("趋势下钻的平台精确匹配而普通平台筛选仍支持关键词", () => {
+  const { context } = loadApp();
+  const amazon = new FakeElement({ dataset: { platform: "Amazon" } });
+  const amazonUs = new FakeElement({ dataset: { platform: "Amazon US" } });
+  const baseFilters = {
+    query: "",
+    platform: "amazon",
+    issue: "",
+    responsibility: "",
+    feedback: "",
+  };
+
+  assert.equal(context.recordMatchesFilters(amazon, baseFilters), true);
+  assert.equal(context.recordMatchesFilters(amazonUs, baseFilters), true);
+  assert.equal(context.recordMatchesFilters(amazon, { ...baseFilters, platformMatch: "exact" }), true);
+  assert.equal(context.recordMatchesFilters(amazonUs, { ...baseFilters, platformMatch: "exact" }), false);
 });
 
 test("无效趋势下钻不改变时间和筛选", () => {
@@ -221,6 +249,28 @@ test("趋势加载成功渲染且失败只更新趋势区域", async () => {
 
   assert.match(failure.elements.get("trend-content").innerHTML, /趋势暂不可用/);
   assert.match(failure.elements.get("trend-content").innerHTML, /trend-error/);
+});
+
+test("较旧的趋势响应不会覆盖较新的分析后刷新结果", async () => {
+  const { context } = loadApp();
+  const firstResponse = deferred();
+  const secondResponse = deferred();
+  const rendered = [];
+  let fetchCalls = 0;
+  context.fetch = () => {
+    fetchCalls += 1;
+    return fetchCalls === 1 ? firstResponse.promise : secondResponse.promise;
+  };
+  context.renderIssueTrends = (payload) => rendered.push(payload.version);
+
+  const firstLoad = context.loadIssueTrends();
+  const secondLoad = context.loadIssueTrends();
+  secondResponse.resolve({ ok: true, json: async () => ({ version: "new" }) });
+  await secondLoad;
+  firstResponse.resolve({ ok: true, json: async () => ({ version: "old" }) });
+  await firstLoad;
+
+  assert.deepEqual(rendered, ["new"]);
 });
 
 test("页面初始化只调用一次趋势加载", () => {

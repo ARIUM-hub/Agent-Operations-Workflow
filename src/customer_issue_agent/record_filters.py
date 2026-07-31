@@ -8,6 +8,7 @@ def filter_records(
     records: list[dict[str, Any]],
     *,
     platform: str = "",
+    platform_match: str = "",
     issue_category: str = "",
     responsibility: str = "",
     feedback_status: str = "",
@@ -15,8 +16,10 @@ def filter_records(
     range: str = "all",
     now: datetime | None = None,
 ) -> list[dict[str, Any]]:
+    platform_filter = _clean(platform)
     filters = {
-        "platform": _clean(platform),
+        "platform": platform_filter,
+        "platform_match": "exact" if platform_filter and _clean(platform_match) == "exact" else "",
         "issue_category": _clean(issue_category),
         "responsibility": _clean(responsibility),
         "feedback_status": _clean(feedback_status),
@@ -36,8 +39,13 @@ def _matches(record: dict[str, Any], filters: dict[str, str], now: datetime) -> 
 
     if filters["range"] != "all" and not _matches_range(record, filters["range"], now):
         return False
-    if filters["platform"] and filters["platform"] not in _clean(request.get("platform")):
-        return False
+    if filters["platform"]:
+        record_platform = _clean(request.get("platform"))
+        if filters["platform_match"] == "exact":
+            if filters["platform"] != record_platform:
+                return False
+        elif filters["platform"] not in record_platform:
+            return False
     if filters["issue_category"] and filters["issue_category"] != _clean(attribution.get("issue_category")):
         return False
     if filters["responsibility"] and filters["responsibility"] != _clean(attribution.get("primary_responsibility")):
@@ -54,7 +62,7 @@ def _matches_range(record: dict[str, Any], range_value: str, now: datetime) -> b
     if created_at is None:
         return False
     days = 7 if range_value == "7d" else 30
-    return created_at >= now - timedelta(days=days)
+    return now - timedelta(days=days) <= created_at <= now
 
 
 def _parse_created_at(value: object) -> datetime | None:

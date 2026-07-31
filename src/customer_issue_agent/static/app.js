@@ -29,6 +29,7 @@ const labels = {
 };
 
 let latestExportCountRequestId = 0;
+let latestIssueTrendRequestId = 0;
 
 document.addEventListener("DOMContentLoaded", () => {
   bindTabs();
@@ -516,15 +517,22 @@ async function loadIssueTrends() {
   if (!container) {
     return;
   }
+  const requestId = ++latestIssueTrendRequestId;
 
   try {
     const response = await fetch("/api/records/trends?period=7d");
     const payload = await response.json();
+    if (requestId !== latestIssueTrendRequestId) {
+      return;
+    }
     if (!response.ok) {
       throw new Error(readError(payload));
     }
     renderIssueTrends(payload);
   } catch (error) {
+    if (requestId !== latestIssueTrendRequestId) {
+      return;
+    }
     container.innerHTML = `<p class="trend-error">${escapeHtml(error.message || "趋势加载失败，请刷新页面重试。")}</p>`;
   }
 }
@@ -636,7 +644,12 @@ function applyIssueTrendFilter({ platform, issueCategory, responsibility }) {
   }
 
   range.value = "7d";
-  applySummaryIssueClusterFilter({ platform, issueCategory, responsibility });
+  applySummaryIssueClusterFilter({
+    platform,
+    issueCategory,
+    responsibility,
+    platformMatch: "exact",
+  });
   loadRecordsSummary();
 }
 
@@ -812,11 +825,12 @@ function applySummaryPlatformFilter(platform) {
   }
 
   input.value = value;
+  input.dataset.matchMode = "";
   refreshRecordFilterViews();
   scrollToRecentRecords();
 }
 
-function applySummaryIssueClusterFilter({ platform, issueCategory, responsibility }) {
+function applySummaryIssueClusterFilter({ platform, issueCategory, responsibility, platformMatch = "" }) {
   const platformValue = String(platform || "").trim();
   const platformFilter = document.getElementById("platform-filter");
   const issueFilter = document.getElementById("issue-filter");
@@ -835,6 +849,7 @@ function applySummaryIssueClusterFilter({ platform, issueCategory, responsibilit
   }
 
   platformFilter.value = platformValue;
+  platformFilter.dataset.matchMode = platformMatch === "exact" ? "exact" : "";
   issueFilter.value = issueCategory;
   responsibilityFilter.value = responsibility;
   refreshRecordFilterViews();
@@ -864,7 +879,8 @@ function buildExportFilterParams() {
   const params = new URLSearchParams();
   const summaryRange = document.getElementById("summary-range")?.value || "all";
   const query = document.getElementById("record-search")?.value.trim() || "";
-  const platform = document.getElementById("platform-filter")?.value.trim() || "";
+  const platformFilter = document.getElementById("platform-filter");
+  const platform = platformFilter?.value.trim() || "";
   const issue = document.getElementById("issue-filter")?.value || "";
   const responsibility = document.getElementById("responsibility-filter")?.value || "";
   const feedback = document.getElementById("feedback-filter")?.value || "";
@@ -877,6 +893,9 @@ function buildExportFilterParams() {
   }
   if (platform) {
     params.set("platform", platform);
+    if (platformFilter?.dataset.matchMode === "exact") {
+      params.set("platform_match", "exact");
+    }
   }
   if (issue) {
     params.set("issue_category", issue);
@@ -1150,7 +1169,10 @@ function bindRecordFilters() {
     return;
   }
 
-  form.addEventListener("input", () => {
+  form.addEventListener("input", (event) => {
+    if (event.target?.id === "platform-filter") {
+      event.target.dataset.matchMode = "";
+    }
     refreshRecordFilterViews();
   });
   form.addEventListener("change", () => {
@@ -1168,14 +1190,19 @@ function bindRecordFilters() {
 function applyRecordFilters() {
   const records = Array.from(document.querySelectorAll("#recent-records .record"));
   const query = document.getElementById("record-search")?.value.trim().toLowerCase() || "";
-  const platform = document.getElementById("platform-filter")?.value.trim().toLowerCase() || "";
+  const platformFilter = document.getElementById("platform-filter");
+  const platform = platformFilter?.value.trim().toLowerCase() || "";
+  const platformMatch = platformFilter?.dataset.matchMode || "";
   const issue = document.getElementById("issue-filter")?.value || "";
   const responsibility = document.getElementById("responsibility-filter")?.value || "";
   const feedback = document.getElementById("feedback-filter")?.value || "";
   let visible = 0;
 
   records.forEach((record) => {
-    const matches = recordMatchesFilters(record, { query, platform, issue, responsibility, feedback });
+    const matches = recordMatchesFilters(
+      record,
+      { query, platform, platformMatch, issue, responsibility, feedback },
+    );
     record.hidden = !matches;
     if (matches) {
       visible += 1;
@@ -1187,6 +1214,10 @@ function applyRecordFilters() {
 
 function resetRecordFilters(form) {
   form.reset();
+  const platformFilter = document.getElementById("platform-filter");
+  if (platformFilter) {
+    platformFilter.dataset.matchMode = "";
+  }
   refreshRecordFilterViews();
 }
 
@@ -1194,7 +1225,11 @@ function recordMatchesFilters(record, filters) {
   const searchText = (record.dataset.searchText || "").toLowerCase();
   const platform = (record.dataset.platform || "").toLowerCase();
   const matchesQuery = !filters.query || searchText.includes(filters.query);
-  const matchesPlatform = !filters.platform || platform.includes(filters.platform);
+  const matchesPlatform = !filters.platform || (
+    filters.platformMatch === "exact"
+      ? platform === filters.platform
+      : platform.includes(filters.platform)
+  );
   const matchesIssue = !filters.issue || record.dataset.issueCategory === filters.issue;
   const matchesResponsibility = !filters.responsibility || record.dataset.responsibility === filters.responsibility;
   const matchesFeedback = !filters.feedback || record.dataset.feedbackStatus === filters.feedback;
