@@ -130,6 +130,8 @@ function renderAnalysisResult(payload) {
   const result = document.getElementById("analysis-result");
   const analysis = payload.analysis;
   const attribution = analysis.attribution;
+  result.dataset.recordId = payload.record_id;
+  result.dataset.feedbackStatus = "unreviewed";
   result.innerHTML = `
     <div class="result-header">
       <div>
@@ -138,7 +140,7 @@ function renderAnalysisResult(payload) {
       </div>
       <span class="record-id">#${escapeHtml(payload.record_id.slice(0, 8))}</span>
     </div>
-    <div class="summary-strip">
+    <div class="summary-strip" data-record-meta>
       <span>${labelFor("issue_category", attribution.issue_category)}</span>
       <span>${labelFor("responsibility", attribution.primary_responsibility)}</span>
       <span>${labelFor("evidence", attribution.evidence_strength)}</span>
@@ -210,7 +212,7 @@ function batchSummaryHtml(payload) {
       </div>
       <div class="summary-metrics batch-summary-metrics">
         ${summaryMetric("本批次记录", payload.count ?? summary.total_records)}
-        ${summaryMetric("待复核", summary.unreviewed_records)}
+        ${summaryMetric("待复核", summary.unreviewed_records, "data-batch-pending-count")}
       </div>
       <div class="summary-grid batch-summary-grid">
         ${batchSummaryDistribution("问题类型", "issue_category", summary.issue_categories)}
@@ -277,8 +279,9 @@ function buildRecordCard(payload) {
   const article = document.createElement("article");
   article.className = "record result-record";
   article.dataset.recordId = payload.record_id;
+  article.dataset.feedbackStatus = "unreviewed";
   article.innerHTML = `
-    <div class="record-meta">
+    <div class="record-meta" data-record-meta>
       <strong>${escapeHtml(analysis.request.platform)}</strong>
       <span>${labelFor("issue_category", attribution.issue_category)}</span>
       <span>${labelFor("responsibility", attribution.primary_responsibility)}</span>
@@ -352,10 +355,12 @@ function prependRecentRecord(payload) {
   article.dataset.platform = analysis.request.platform;
   article.dataset.issueCategory = attribution.issue_category;
   article.dataset.responsibility = attribution.primary_responsibility;
+  const searchBaseText = `${payload.record_id} ${analysis.request.platform} ${analysis.report}`;
   article.dataset.feedbackStatus = "unreviewed";
-  article.dataset.searchText = `${payload.record_id} ${analysis.request.platform} ${analysis.report}`;
+  article.dataset.searchBaseText = searchBaseText;
+  article.dataset.searchText = searchBaseText;
   article.innerHTML = `
-    <div class="record-meta">
+    <div class="record-meta" data-record-meta>
       <strong>${escapeHtml(analysis.request.platform)}</strong>
       <span>${labelFor("issue_category", attribution.issue_category)}</span>
       <span>${labelFor("responsibility", attribution.primary_responsibility)}</span>
@@ -529,11 +534,12 @@ function selectHasOption(select, value) {
   );
 }
 
-function summaryMetric(label, value) {
+function summaryMetric(label, value, valueAttribute = "") {
+  const attribute = valueAttribute ? ` ${valueAttribute}` : "";
   return `
     <article class="summary-card">
       <span>${escapeHtml(label)}</span>
-      <strong>${escapeHtml(value)}</strong>
+      <strong${attribute}>${escapeHtml(value)}</strong>
     </article>
   `;
 }
@@ -914,18 +920,19 @@ function recordDetailHtml(recordId, analysis, feedback = null) {
         ${recordDetailRow("证据强度", labelFor("evidence", attribution.evidence_strength))}
         ${recordDetailRow("下一步建议", listText(attribution.recommended_actions))}
         ${recordDetailRow("需要补充信息", listText(attribution.missing_information))}
-        ${recordDetailRow("人工复核", feedbackStatus)}
-        ${recordDetailRow("人工备注", feedbackNote)}
+        ${recordDetailRow("人工复核", feedbackStatus, "data-record-feedback-status")}
+        ${recordDetailRow("人工备注", feedbackNote, "data-record-feedback-note")}
       </dl>
     </div>
   `;
 }
 
-function recordDetailRow(label, value) {
+function recordDetailRow(label, value, valueAttribute = "") {
+  const attribute = valueAttribute ? ` ${valueAttribute}` : "";
   return `
     <div>
       <dt>${escapeHtml(label)}</dt>
-      <dd>${escapeHtml(value || "暂无信息")}</dd>
+      <dd${attribute}>${escapeHtml(value || "暂无信息")}</dd>
     </div>
   `;
 }

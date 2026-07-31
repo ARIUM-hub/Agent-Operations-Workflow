@@ -177,9 +177,10 @@
                   data-issue-category="{{ record.analysis.attribution.issue_category }}"
                   data-responsibility="{{ record.analysis.attribution.primary_responsibility }}"
                   data-feedback-status="{{ 'accepted' if record.feedback and record.feedback.accepted else 'corrected' if record.feedback else 'unreviewed' }}"
+                  data-search-base-text="{{ record.id }} {{ record.analysis.request.platform }} {{ record.analysis.report }}"
                   data-search-text="{{ record.id }} {{ record.analysis.request.platform }} {{ record.analysis.report }} {{ record.feedback.note if record.feedback and record.feedback.note else '' }}"
                 >
-                  <div class="record-meta">
+                  <div class="record-meta" data-record-meta>
                     <strong>{{ record.analysis.request.platform }}</strong>
                     <span>{{ record.analysis.attribution.issue_category }}</span>
                     <span>{{ record.analysis.attribution.primary_responsibility }}</span>
@@ -230,11 +231,11 @@
                       </div>
                       <div>
                         <dt>人工复核</dt>
-                        <dd>{{ "已认可" if record.feedback and record.feedback.accepted else "已修正" if record.feedback else "未复核" }}</dd>
+                        <dd data-record-feedback-status>{{ "已认可" if record.feedback and record.feedback.accepted else "已修正" if record.feedback else "未复核" }}</dd>
                       </div>
                       <div>
                         <dt>人工备注</dt>
-                        <dd>{{ record.feedback.note if record.feedback and record.feedback.note else "暂无信息" }}</dd>
+                        <dd data-record-feedback-note>{{ record.feedback.note if record.feedback and record.feedback.note else "暂无信息" }}</dd>
                       </div>
                     </dl>
                   </div>
