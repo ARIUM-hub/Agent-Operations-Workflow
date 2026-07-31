@@ -187,3 +187,60 @@ test("记录 ID 使用精确比较而不依赖动态 CSS 选择器", () => {
   assert.equal(exact.dataset.feedbackStatus, "accepted");
   assert.equal(similar.dataset.feedbackStatus, "unreviewed");
 });
+
+function createFeedbackForm() {
+  const button = new FakeElement({ textContent: "保存反馈" });
+  const message = new FakeElement();
+  const form = new FakeElement({ dataset: { endpoint: "/api/records/record-1/feedback" } });
+  form.setSelector("button[type='submit']", button);
+  form.setSelector(".form-message", message);
+  return { button, form, message };
+}
+
+test("提交成功后依次同步 UI、刷新筛选并刷新一次概览", async () => {
+  const { context } = loadApp();
+  const { button, form, message } = createFeedbackForm();
+  const calls = [];
+  context.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      record_id: "record-1",
+      feedback: { accepted: true, note: "已确认" },
+    }),
+  });
+  context.syncFeedbackUi = (recordId, feedback) => calls.push(["sync", recordId, feedback.note]);
+  context.refreshRecordFilterViews = () => calls.push(["filters"]);
+  context.loadRecordsSummary = () => calls.push(["summary"]);
+
+  await context.submitFeedbackForm(form);
+
+  assert.deepEqual(calls, [
+    ["sync", "record-1", "已确认"],
+    ["filters"],
+    ["summary"],
+  ]);
+  assert.equal(message.textContent, "已保存：认可系统判断。");
+  assert.equal(message.classList.contains("is-success"), true);
+  assert.equal(button.disabled, false);
+  assert.equal(button.textContent, "保存反馈");
+});
+
+test("提交失败不改变本地反馈状态也不刷新概览", async () => {
+  const { context } = loadApp();
+  const { form, message } = createFeedbackForm();
+  const calls = [];
+  context.fetch = async () => ({
+    ok: false,
+    json: async () => ({ detail: "保存失败" }),
+  });
+  context.syncFeedbackUi = () => calls.push("sync");
+  context.refreshRecordFilterViews = () => calls.push("filters");
+  context.loadRecordsSummary = () => calls.push("summary");
+
+  await context.submitFeedbackForm(form);
+
+  assert.deepEqual(calls, []);
+  assert.equal(message.textContent, "保存失败");
+  assert.equal(message.classList.contains("is-visible"), true);
+  assert.equal(message.classList.contains("is-success"), false);
+});

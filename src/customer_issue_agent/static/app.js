@@ -393,6 +393,9 @@ async function submitFeedbackForm(form) {
     if (!response.ok) {
       throw new Error(readError(payload));
     }
+    syncFeedbackUi(payload.record_id, payload.feedback);
+    refreshRecordFilterViews();
+    loadRecordsSummary();
     message.textContent = payload.feedback.accepted ? "已保存：认可系统判断。" : "已保存：人工修正已记录。";
     message.classList.add("is-visible", "is-success");
   } catch (error) {

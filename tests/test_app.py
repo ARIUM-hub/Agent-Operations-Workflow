@@ -303,6 +303,19 @@ def test_dynamic_record_renderers_expose_feedback_sync_dom_contract(tmp_path):
     assert "data-record-feedback-note" in script
 
 
+def test_feedback_success_path_refreshes_local_views_and_summary(tmp_path):
+    app = create_app(storage_path=tmp_path / "analyses.jsonl")
+    client = TestClient(app)
+
+    response = client.get("/static/app.js")
+
+    assert response.status_code == 200
+    script = response.text
+    assert "syncFeedbackUi(payload.record_id, payload.feedback);" in script
+    assert "refreshRecordFilterViews();" in script
+    assert "loadRecordsSummary();" in script
+
+
 def test_export_records_csv_endpoint_returns_bom_csv_with_feedback(tmp_path):
     app = create_app(storage_path=tmp_path / "analyses.jsonl")
     client = TestClient(app)
