@@ -632,13 +632,131 @@ textarea:focus-visible {
   text-decoration: underline;
 }
 
+.trend-dashboard {
+  margin-top: 24px;
+}
+
+.trend-period,
+.trend-loading,
+.trend-error,
+.trend-empty {
+  color: var(--muted);
+}
+
+.trend-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.trend-card {
+  margin-top: 16px;
+}
+
+.trend-card h3 {
+  margin: 0;
+}
+
+.trend-list {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  margin: 14px 0 0;
+  list-style: none;
+}
+
+.trend-row,
+.trend-row-button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+}
+
+.trend-row {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.trend-row:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.trend-row-button {
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.trend-row-button:hover .trend-cluster-label strong,
+.trend-row-button:focus-visible .trend-cluster-label strong {
+  color: var(--accent);
+}
+
+.trend-row-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.trend-cluster-label {
+  display: grid;
+  gap: 4px;
+}
+
+.trend-cluster-label strong {
+  margin-top: 0;
+  font-size: 16px;
+}
+
+.trend-cluster-label small {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.trend-counts {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.trend-change {
+  min-width: 38px;
+  font-weight: 800;
+  text-align: right;
+}
+
+.trend-change.is-up {
+  color: #b4472d;
+}
+
+.trend-change.is-down {
+  color: #28705f;
+}
+
+.summary-card .trend-alert {
+  border: 1px solid rgba(180, 71, 45, 0.35);
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: rgba(180, 71, 45, 0.1);
+  color: #8f321f;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 @media (max-width: 900px) {
   .workspace-grid {
     grid-template-columns: 1fr;
   }
 
   .summary-metrics,
-  .summary-grid {
+  .summary-grid,
+  .trend-metrics {
     grid-template-columns: 1fr;
   }
 
@@ -673,6 +791,16 @@ textarea:focus-visible {
 
   .tabs {
     display: grid;
+  }
+
+  .trend-row,
+  .trend-row-button {
+    grid-template-columns: 1fr;
+  }
+
+  .trend-counts {
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   h1 {

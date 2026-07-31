@@ -18,6 +18,7 @@ from customer_issue_agent.record_filters import filter_records
 from customer_issue_agent.report import build_report
 from customer_issue_agent.storage import AnalysisStore
 from customer_issue_agent.summary import build_records_summary
+from customer_issue_agent.trends import build_issue_trends
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 DEFAULT_STORAGE = Path("data") / "analyses.jsonl"
@@ -144,6 +145,10 @@ def create_app(storage_path: Path | None = None) -> FastAPI:
     @app.get("/api/records/summary")
     async def records_summary(range: str = "all") -> dict:
         return build_records_summary(filter_records(store.list_records(), range=range))
+
+    @app.get("/api/records/trends")
+    async def records_trends(period: str = "7d") -> dict:
+        return build_issue_trends(store.list_records(), period=period)
 
     return app
 

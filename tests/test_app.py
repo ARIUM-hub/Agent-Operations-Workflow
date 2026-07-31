@@ -906,3 +906,69 @@ def test_index_contains_platform_presets_for_all_platform_inputs(tmp_path):
     assert 'value="Temu"' in html
     assert 'value="Shein"' in html
     assert 'value="Other overseas platform"' in html
+
+
+def test_records_trends_endpoint_compares_recent_periods(tmp_path):
+    storage_path = tmp_path / "analyses.jsonl"
+    now = datetime.now(UTC)
+    _write_jsonl_records(
+        storage_path,
+        [
+            _stored_record("current-1", platform="Amazon", created_at=now - timedelta(days=1)),
+            _stored_record("current-2", platform="Amazon", created_at=now - timedelta(days=2)),
+            _stored_record("previous", platform="Amazon", created_at=now - timedelta(days=8)),
+        ],
+    )
+    app = create_app(storage_path=storage_path)
+    client = TestClient(app)
+
+    response = client.get("/api/records/trends", params={"period": "7d"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["period"] == "7d"
+    assert payload["current_period"]["total_records"] == 2
+    assert payload["previous_period"]["total_records"] == 1
+    assert payload["total_delta"] == 1
+    assert payload["clusters"][0]["platform"] == "Amazon"
+    assert payload["clusters"][0]["delta"] == 1
+
+
+def test_records_trends_endpoint_falls_back_to_seven_days(tmp_path):
+    app = create_app(storage_path=tmp_path / "analyses.jsonl")
+    client = TestClient(app)
+
+    response = client.get("/api/records/trends", params={"period": "30d"})
+
+    assert response.status_code == 200
+    assert response.json()["period"] == "7d"
+
+
+def test_index_contains_issue_trend_region(tmp_path):
+    app = create_app(storage_path=tmp_path / "analyses.jsonl")
+    client = TestClient(app)
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    html = response.text
+    assert 'id="issue-trends"' in html
+    assert 'id="trend-content"' in html
+    assert 'aria-label="近 7 天问题趋势"' in html
+    assert "趋势加载中" in html
+
+
+def test_styles_cover_issue_trend_components(tmp_path):
+    app = create_app(storage_path=tmp_path / "analyses.jsonl")
+    client = TestClient(app)
+
+    response = client.get("/static/styles.css")
+
+    assert response.status_code == 200
+    css = response.text
+    assert ".trend-dashboard" in css
+    assert ".trend-metrics" in css
+    assert ".trend-row" in css
+    assert ".trend-change.is-up" in css
+    assert ".trend-change.is-down" in css
+    assert ".trend-alert" in css
