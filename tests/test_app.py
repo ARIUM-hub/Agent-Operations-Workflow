@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from customer_issue_agent import __version__
 from customer_issue_agent.app import create_app
+from customer_issue_agent.task_storage import TaskStore
 
 
 def test_package_imports():
@@ -699,6 +700,31 @@ def _write_jsonl_records(path, records):
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
+def _completed_task_event(now: datetime) -> dict:
+    return {
+        "id": "task-review",
+        "title": "Amazon · 功能不会用或设置失败 · 客服培训",
+        "created_at": (now - timedelta(days=20)).isoformat(),
+        "updated_at": (now - timedelta(days=8)).isoformat(),
+        "source": "summary",
+        "source_range": "all",
+        "platform": "Amazon",
+        "issue_category": "function_use",
+        "responsibility": "customer_service_training",
+        "record_ids": ["baseline"],
+        "record_count": 1,
+        "significant_increase": False,
+        "team": "customer_service_training",
+        "priority": "medium",
+        "due_date": (now - timedelta(days=10)).date().isoformat(),
+        "status": "completed",
+        "result": "已更新帮助中心",
+        "completed_at": (now - timedelta(days=8)).isoformat(),
+        "effect_review": None,
+        "effect_review_revision_count": 0,
+    }
+
+
 def test_records_summary_endpoint_filters_by_time_range(tmp_path):
     storage_path = tmp_path / "analyses.jsonl"
     now = datetime.now(UTC)
@@ -1135,6 +1161,89 @@ def test_task_api_maps_validation_conflict_missing_and_storage_errors(tmp_path):
     assert damaged.status_code == 500
     assert damaged.json()["detail"] == "任务数据读取失败"
     assert client.get("/api/records/summary").status_code == 200
+
+
+def test_effect_review_api_previews_submits_revises_and_filters(tmp_path):
+    now = datetime.now(UTC)
+    storage_path = tmp_path / "analyses.jsonl"
+    task_path = tmp_path / "tasks.jsonl"
+    task = _completed_task_event(now)
+    _write_jsonl_records(
+        storage_path,
+        [
+            _stored_record(
+                "baseline",
+                platform="Amazon",
+                created_at=now - timedelta(days=21),
+            ),
+            _stored_record(
+                "effect",
+                platform="amazon",
+                created_at=now - timedelta(days=2),
+            ),
+        ],
+    )
+    TaskStore(task_path).append_created(task)
+    client = TestClient(
+        create_app(storage_path=storage_path, task_storage_path=task_path)
+    )
+
+    preview = client.get("/api/tasks/task-review/effect-review")
+    submitted = client.post(
+        "/api/tasks/task-review/effect-reviews",
+        json={"verdict": "effective", "note": "同类问题下降"},
+    )
+    revised = client.post(
+        "/api/tasks/task-review/effect-reviews",
+        json={"verdict": "no_clear_change", "note": "补录后修正"},
+    )
+    listed = client.get(
+        "/api/tasks", params={"effect_review_state": "reviewed"}
+    )
+
+    assert preview.status_code == 200
+    assert preview.json()["evidence"]["baseline"]["record_ids"] == [
+        "baseline"
+    ]
+    assert preview.json()["evidence"]["effect"]["record_ids"] == ["effect"]
+    assert submitted.status_code == 200
+    assert submitted.json()["review"]["revision"] == 1
+    assert revised.json()["review"]["revision"] == 2
+    assert listed.json()["effect_review_counts"]["reviewed"] == 1
+    assert listed.json()["tasks"][0]["effect_review_state"] == "reviewed"
+
+
+def test_effect_review_api_maps_missing_conflict_and_validation(tmp_path):
+    storage_path = tmp_path / "analyses.jsonl"
+    task_path = tmp_path / "tasks.jsonl"
+    now = datetime.now(UTC)
+    task_store = TaskStore(task_path)
+    task_store.append_created(_completed_task_event(now))
+    task_store.append_created(
+        {
+            **_completed_task_event(now),
+            "id": "task-accumulating",
+            "completed_at": now.isoformat(),
+        }
+    )
+    client = TestClient(
+        create_app(storage_path=storage_path, task_storage_path=task_path)
+    )
+
+    missing = client.get("/api/tasks/missing/effect-review")
+    accumulating = client.get("/api/tasks/task-accumulating/effect-review")
+    invalid = client.post(
+        "/api/tasks/task-review/effect-reviews",
+        json={"verdict": "automatic", "note": "说明"},
+    )
+    invalid_filter = client.get(
+        "/api/tasks", params={"effect_review_state": "late"}
+    )
+
+    assert missing.status_code == 404
+    assert accumulating.status_code == 409
+    assert invalid.status_code == 422
+    assert invalid_filter.status_code == 422
 
 
 def test_index_contains_task_region_and_accessible_filters(tmp_path):

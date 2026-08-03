@@ -167,9 +167,17 @@ def create_app(
         return build_issue_trends(store.list_records(), period=period)
 
     @app.get("/api/tasks")
-    async def list_tasks(status: str = "", priority: str = "") -> dict:
+    async def list_tasks(
+        status: str = "",
+        priority: str = "",
+        effect_review_state: str = "",
+    ) -> dict:
         try:
-            return task_service.list_tasks(status=status, priority=priority)
+            return task_service.list_tasks(
+                status=status,
+                priority=priority,
+                effect_review_state=effect_review_state,
+            )
         except (TaskValidationError, TaskStorageError) as exc:
             _raise_task_http_error(exc)
 
@@ -213,6 +221,30 @@ def create_app(
     async def update_task(task_id: str, payload: dict) -> dict:
         try:
             return task_service.update_task(task_id, payload)
+        except (
+            TaskValidationError,
+            TaskConflictError,
+            TaskNotFoundError,
+            TaskStorageError,
+        ) as exc:
+            _raise_task_http_error(exc)
+
+    @app.get("/api/tasks/{task_id}/effect-review")
+    async def get_task_effect_review(task_id: str) -> dict:
+        try:
+            return task_service.get_effect_review(task_id)
+        except (
+            TaskValidationError,
+            TaskConflictError,
+            TaskNotFoundError,
+            TaskStorageError,
+        ) as exc:
+            _raise_task_http_error(exc)
+
+    @app.post("/api/tasks/{task_id}/effect-reviews")
+    async def review_task_effect(task_id: str, payload: dict) -> dict:
+        try:
+            return task_service.review_task_effect(task_id, payload)
         except (
             TaskValidationError,
             TaskConflictError,
