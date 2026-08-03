@@ -124,6 +124,85 @@
           <div id="trend-content" class="trend-loading">趋势加载中...</div>
         </section>
 
+        <section
+          id="task-workflow"
+          class="task-dashboard panel"
+          aria-label="问题簇处理任务"
+        >
+          <div class="section-heading task-heading">
+            <div>
+              <p class="eyebrow">处理任务</p>
+              <h2>问题簇处理闭环</h2>
+            </div>
+            <div class="task-filters" aria-label="筛选处理任务">
+              <label for="task-status-filter">状态</label>
+              <select id="task-status-filter">
+                <option value="">全部状态</option>
+                <option value="pending">待处理</option>
+                <option value="in_progress">处理中</option>
+                <option value="completed">已完成</option>
+              </select>
+              <label for="task-priority-filter">优先级</label>
+              <select id="task-priority-filter">
+                <option value="">全部优先级</option>
+                <option value="high">高</option>
+                <option value="medium">中</option>
+                <option value="low">低</option>
+              </select>
+            </div>
+          </div>
+          <form id="task-create-form" class="task-create-form" hidden>
+            <input type="hidden" name="source">
+            <input type="hidden" name="source_range">
+            <input type="hidden" name="platform">
+            <input type="hidden" name="issue_category">
+            <input type="hidden" name="responsibility">
+            <div>
+              <p class="eyebrow">创建处理任务</p>
+              <h3 data-task-create-title></h3>
+              <p data-task-create-source></p>
+            </div>
+            <label>
+              责任团队
+              <select name="team" required>
+                <option value="operations">运营</option>
+                <option value="customer_service_training">客服培训</option>
+                <option value="product">产品</option>
+                <option value="supply_chain_quality">供应链或质量</option>
+                <option value="need_more_information">需要补充信息</option>
+              </select>
+            </label>
+            <label>
+              优先级
+              <select name="priority" required>
+                <option value="high">高</option>
+                <option value="medium">中</option>
+                <option value="low">低</option>
+              </select>
+            </label>
+            <label>
+              截止日期
+              <input type="date" name="due_date" required>
+            </label>
+            <div class="task-form-actions">
+              <button
+                class="primary-action"
+                type="submit"
+                data-loading-label="创建中..."
+              >创建任务</button>
+              <button
+                class="secondary-action"
+                type="button"
+                data-task-create-cancel
+              >取消</button>
+            </div>
+            <p class="form-message" role="alert" aria-live="polite"></p>
+          </form>
+          <div id="task-content">
+            <p class="task-loading">任务加载中...</p>
+          </div>
+        </section>
+
         <section class="history" aria-label="最近分析记录">
           <div class="section-heading">
             <div>

@@ -1038,3 +1038,128 @@ def test_static_app_js_contains_issue_trend_hooks(tmp_path):
     assert "/api/records/trends?period=7d" in script
     assert "data-issue-trend-filter" in script
     assert "明显上升" in script
+
+
+def test_task_api_creates_reuses_lists_and_completes_task(tmp_path):
+    storage_path = tmp_path / "analyses.jsonl"
+    task_path = tmp_path / "tasks.jsonl"
+    _write_jsonl_records(
+        storage_path,
+        [_stored_record("record-1", platform="Amazon", created_at=datetime.now(UTC))],
+    )
+    client = TestClient(
+        create_app(storage_path=storage_path, task_storage_path=task_path)
+    )
+    form = {
+        "source": "summary",
+        "source_range": "all",
+        "platform": "Amazon",
+        "issue_category": "function_use",
+        "responsibility": "customer_service_training",
+        "team": "customer_service_training",
+        "priority": "medium",
+        "due_date": "2030-01-01",
+    }
+
+    created = client.post("/api/tasks", data=form)
+    duplicate = client.post(
+        "/api/tasks", data={**form, "source": "trend", "source_range": "7d"}
+    )
+    listed = client.get(
+        "/api/tasks", params={"status": "pending", "priority": "medium"}
+    )
+    task_id = created.json()["task"]["id"]
+    skipped = client.patch(
+        f"/api/tasks/{task_id}",
+        json={"status": "completed", "result": "不能跳过处理中"},
+    )
+    started = client.patch(
+        f"/api/tasks/{task_id}", json={"status": "in_progress"}
+    )
+    empty_result = client.patch(
+        f"/api/tasks/{task_id}",
+        json={"status": "completed", "result": "  "},
+    )
+    completed = client.patch(
+        f"/api/tasks/{task_id}",
+        json={"status": "completed", "result": "已更新帮助中心"},
+    )
+
+    assert created.status_code == 201
+    assert created.json()["created"] is True
+    assert duplicate.status_code == 200
+    assert duplicate.json() == {"created": False, "task": created.json()["task"]}
+    assert listed.status_code == 200
+    assert listed.json()["counts"]["pending"] == 1
+    assert listed.json()["tasks"][0]["record_ids"] == ["record-1"]
+    assert skipped.status_code == 409
+    assert started.status_code == 200
+    assert started.json()["status"] == "in_progress"
+    assert empty_result.status_code == 422
+    assert completed.status_code == 200
+    assert completed.json()["result"] == "已更新帮助中心"
+
+
+def test_task_api_maps_validation_conflict_missing_and_storage_errors(tmp_path):
+    storage_path = tmp_path / "analyses.jsonl"
+    task_path = tmp_path / "tasks.jsonl"
+    _write_jsonl_records(
+        storage_path,
+        [_stored_record("record-1", platform="Amazon", created_at=datetime.now(UTC))],
+    )
+    client = TestClient(
+        create_app(storage_path=storage_path, task_storage_path=task_path)
+    )
+
+    invalid_create = client.post(
+        "/api/tasks",
+        data={
+            "source": "summary",
+            "source_range": "all",
+            "platform": "unknown",
+            "issue_category": "function_use",
+            "responsibility": "customer_service_training",
+        },
+    )
+    invalid_filter = client.get("/api/tasks", params={"status": "reopened"})
+    invalid_priority = client.get("/api/tasks", params={"priority": "urgent"})
+    missing = client.patch("/api/tasks/missing", json={"team": "product"})
+
+    assert invalid_create.status_code == 422
+    assert invalid_filter.status_code == 422
+    assert invalid_priority.status_code == 422
+    assert missing.status_code == 404
+
+    task_path.write_text("{broken}\n", encoding="utf-8")
+    damaged = client.get("/api/tasks")
+    assert damaged.status_code == 500
+    assert damaged.json()["detail"] == "任务数据读取失败"
+    assert client.get("/api/records/summary").status_code == 200
+
+
+def test_index_contains_task_region_and_accessible_filters(tmp_path):
+    client = TestClient(create_app(storage_path=tmp_path / "analyses.jsonl"))
+
+    html = client.get("/").text
+
+    assert 'id="task-workflow"' in html
+    assert 'id="task-content"' in html
+    assert 'id="task-status-filter"' in html
+    assert 'id="task-priority-filter"' in html
+    assert 'id="task-create-form"' in html
+    assert 'aria-label="问题簇处理任务"' in html
+    assert html.index('id="task-workflow"') < html.index('id="recent-records"')
+
+
+def test_styles_cover_task_cards_states_overdue_and_mobile(tmp_path):
+    client = TestClient(create_app(storage_path=tmp_path / "analyses.jsonl"))
+
+    css = client.get("/static/styles.css").text
+
+    assert ".task-dashboard" in css
+    assert ".task-card" in css
+    assert ".task-status" in css
+    assert ".task-overdue" in css
+    assert ".task-card.is-highlighted" in css
+    assert ".task-create-form" in css
+    assert "@media (max-width: 720px)" in css
