@@ -1174,3 +1174,15 @@ def test_static_app_js_contains_task_workflow_hooks(tmp_path):
     assert "loadTasks" in script
     assert "submitTaskCreate" in script
     assert "data-task-create" in script
+
+
+def test_static_app_js_contains_task_lifecycle_hooks(tmp_path):
+    client = TestClient(create_app(storage_path=tmp_path / "analyses.jsonl"))
+
+    script = client.get("/static/app.js").text
+
+    assert "taskActionsHtml" in script
+    assert "updateTask" in script
+    assert "completeTask" in script
+    assert "drilldownTaskRecords" in script
+    assert "data-task-records" in script

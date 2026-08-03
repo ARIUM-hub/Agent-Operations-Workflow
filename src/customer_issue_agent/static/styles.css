@@ -911,6 +911,30 @@ textarea:focus-visible {
   flex: 0 0 auto;
 }
 
+.task-edit-form,
+.task-complete-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 13px;
+}
+
+.task-complete-form {
+  grid-template-columns: 1fr auto;
+  align-items: end;
+}
+
+.task-edit-form[hidden],
+.task-complete-form[hidden] {
+  display: none;
+}
+
+.task-edit-form .form-message,
+.task-complete-form .form-message {
+  grid-column: 1 / -1;
+}
+
 @media (max-width: 900px) {
   .workspace-grid {
     grid-template-columns: 1fr;
@@ -983,6 +1007,16 @@ textarea:focus-visible {
 
   .task-filters select {
     flex: 1 1 144px;
+  }
+
+  .task-edit-form,
+  .task-complete-form {
+    grid-template-columns: 1fr;
+  }
+
+  .task-edit-form .form-message,
+  .task-complete-form .form-message {
+    grid-column: auto;
   }
 
   h1 {

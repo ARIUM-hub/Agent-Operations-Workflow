@@ -408,3 +408,117 @@ test("分析、批量分析和反馈保存不刷新任务区域", async () => {
 
   assert.equal(taskLoads, 0);
 });
+
+test("待处理、处理中和已完成任务只显示合法操作", () => {
+  const { context } = loadApp();
+
+  assert.match(context.taskActionsHtml(task()), /开始处理/);
+  assert.match(context.taskActionsHtml(task()), /编辑/);
+  assert.doesNotMatch(context.taskActionsHtml(task()), /完成任务/);
+  assert.match(
+    context.taskActionsHtml(task({ status: "in_progress" })),
+    /完成任务/,
+  );
+  assert.doesNotMatch(
+    context.taskActionsHtml(task({ status: "completed" })),
+    /data-task-edit/,
+  );
+});
+
+test("开始处理成功只刷新一次任务区域", async () => {
+  const { context } = loadApp();
+  const calls = [];
+  context.fetch = async (url, options) => {
+    calls.push([url, JSON.parse(options.body)]);
+    return {
+      ok: true,
+      json: async () => task({ status: "in_progress" }),
+    };
+  };
+  context.loadTasks = () => {
+    calls.push(["refresh"]);
+  };
+
+  await context.updateTask(
+    "task-one",
+    { status: "in_progress" },
+    new FakeElement(),
+  );
+
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0][0], "/api/tasks/task-one");
+  assert.equal(calls[0][1].status, "in_progress");
+  assert.equal(calls[1][0], "refresh");
+});
+
+test("空处理结果不提交，合法结果去除空白后完成", async () => {
+  const { context } = loadApp();
+  const requestBodies = [];
+  context.fetch = async (_url, options) => {
+    requestBodies.push(JSON.parse(options.body));
+    return {
+      ok: true,
+      json: async () => task({ status: "completed" }),
+    };
+  };
+  context.loadTasks = () => {};
+  const message = new FakeElement();
+
+  await context.completeTask("task-one", "   ", message);
+  assert.equal(requestBodies.length, 0);
+  assert.match(message.textContent, /处理结果/);
+
+  await context.completeTask("task-one", "  已更新说明  ", message);
+  assert.equal(requestBodies.length, 1);
+  assert.equal(requestBodies[0].result, "已更新说明");
+});
+
+test("更新失败保留展开表单和值且不刷新任务", async () => {
+  const { context } = loadApp();
+  let refreshes = 0;
+  context.fetch = async () => ({
+    ok: false,
+    json: async () => ({ detail: "状态冲突" }),
+  });
+  context.loadTasks = () => {
+    refreshes += 1;
+  };
+  const message = new FakeElement();
+
+  const succeeded = await context.updateTask(
+    "task-one",
+    { team: "product" },
+    message,
+  );
+
+  assert.equal(succeeded, false);
+  assert.equal(refreshes, 0);
+  assert.equal(message.textContent, "状态冲突");
+});
+
+test("任务记录下钻设置保存范围和精确问题簇并保留关键词复核", () => {
+  const { context, elements } = loadApp();
+  elements.set("platform-filter", new FakeElement());
+  elements.set("issue-filter", new FakeElement());
+  elements.set("responsibility-filter", new FakeElement());
+  elements.set("record-search", new FakeElement({ value: "保留关键词" }));
+  elements.set("feedback-filter", new FakeElement({ value: "unreviewed" }));
+  const calls = [];
+  context.refreshRecordFilterViews = () => calls.push("filters");
+  context.loadRecordsSummary = () => calls.push("summary");
+  context.scrollToRecentRecords = () => calls.push("scroll");
+
+  context.drilldownTaskRecords(task({ source_range: "7d" }));
+
+  assert.equal(elements.get("summary-range").value, "7d");
+  assert.equal(elements.get("platform-filter").value, "Amazon");
+  assert.equal(elements.get("platform-filter").dataset.matchMode, "exact");
+  assert.equal(elements.get("issue-filter").value, "function_use");
+  assert.equal(
+    elements.get("responsibility-filter").value,
+    "customer_service_training",
+  );
+  assert.equal(elements.get("record-search").value, "保留关键词");
+  assert.equal(elements.get("feedback-filter").value, "unreviewed");
+  assert.deepEqual(calls, ["filters", "summary", "scroll"]);
+});

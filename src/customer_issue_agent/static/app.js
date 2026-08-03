@@ -1360,7 +1360,14 @@ function taskCardHtml(task, now = new Date()) {
     `
     : "";
   return `
-    <article class="task-card" data-task-id="${escapeHtml(task.id)}">
+    <article
+      class="task-card"
+      data-task-id="${escapeHtml(task.id)}"
+      data-task-source-range="${escapeHtml(task.source_range)}"
+      data-task-platform="${escapeHtml(task.platform)}"
+      data-task-issue-category="${escapeHtml(task.issue_category)}"
+      data-task-responsibility="${escapeHtml(task.responsibility)}"
+    >
       <div class="task-card-header">
         <h3>${escapeHtml(task.title)}</h3>
         <span class="task-status">${escapeHtml(labelFor("task_status", task.status))}</span>
@@ -1374,7 +1381,7 @@ function taskCardHtml(task, now = new Date()) {
       <p>截止日期：${escapeHtml(task.due_date)}</p>
       <button class="task-record-link" type="button" data-task-records>${escapeHtml(task.record_count)} 条关联记录</button>
       ${result}
-      <div class="task-actions"></div>
+      ${taskActionsHtml(task)}
     </article>
   `;
 }
@@ -1516,7 +1523,178 @@ function highlightTask(taskId) {
   setTimeout(() => card.classList.remove("is-highlighted"), 1800);
 }
 
-function bindTaskActions() {}
+function taskActionsHtml(task) {
+  if (task.status === "completed") {
+    return "";
+  }
+  const primary = task.status === "pending"
+    ? `<button class="primary-action" type="button" data-task-start>开始处理</button>`
+    : `<button class="primary-action" type="button" data-task-complete-toggle>完成任务</button>`;
+  return `
+    <div class="task-actions">
+      ${primary}
+      <button class="secondary-action" type="button" data-task-edit>编辑</button>
+    </div>
+    <p class="form-message" data-task-action-message role="alert"></p>
+    <form class="task-edit-form" hidden>
+      <label>
+        责任团队
+        <select name="team">${taskTeamOptions(task.team)}</select>
+      </label>
+      <label>
+        优先级
+        <select name="priority">${taskPriorityOptions(task.priority)}</select>
+      </label>
+      <label>
+        截止日期
+        <input name="due_date" type="date" value="${escapeHtml(task.due_date)}">
+      </label>
+      <button class="primary-action" type="submit">保存</button>
+      <p class="form-message" role="alert"></p>
+    </form>
+    <form class="task-complete-form" hidden>
+      <label>
+        处理结果
+        <textarea name="result" rows="3" required></textarea>
+      </label>
+      <button class="primary-action" type="submit">确认完成</button>
+      <p class="form-message" role="alert"></p>
+    </form>
+  `;
+}
+
+function taskTeamOptions(selected) {
+  return Object.entries(labels.responsibility)
+    .map(([value, label]) => (
+      `<option value="${value}"${value === selected ? " selected" : ""}>${escapeHtml(label)}</option>`
+    ))
+    .join("");
+}
+
+function taskPriorityOptions(selected) {
+  return Object.entries(labels.task_priority)
+    .map(([value, label]) => (
+      `<option value="${value}"${value === selected ? " selected" : ""}>${escapeHtml(label)}</option>`
+    ))
+    .join("");
+}
+
+function bindTaskActions(root) {
+  root.querySelectorAll("[data-task-id]").forEach((card) => {
+    const taskId = card.dataset.taskId;
+    card.querySelector("[data-task-start]")?.addEventListener("click", (event) => {
+      updateTask(
+        taskId,
+        { status: "in_progress" },
+        card.querySelector("[data-task-action-message]"),
+        event.currentTarget,
+      );
+    });
+    card.querySelector("[data-task-edit]")?.addEventListener("click", () => {
+      card.querySelector(".task-edit-form").hidden = false;
+    });
+    card.querySelector("[data-task-complete-toggle]")?.addEventListener("click", () => {
+      card.querySelector(".task-complete-form").hidden = false;
+    });
+
+    const editForm = card.querySelector(".task-edit-form");
+    editForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const data = new FormData(editForm);
+      await updateTask(
+        taskId,
+        Object.fromEntries(data.entries()),
+        editForm.querySelector(".form-message"),
+        editForm.querySelector("button[type='submit']"),
+      );
+    });
+
+    const completeForm = card.querySelector(".task-complete-form");
+    completeForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await completeTask(
+        taskId,
+        completeForm.elements.result.value,
+        completeForm.querySelector(".form-message"),
+        completeForm.querySelector("button[type='submit']"),
+      );
+    });
+
+    card.querySelector("[data-task-records]")?.addEventListener("click", () => {
+      drilldownTaskRecords({
+        source_range: card.dataset.taskSourceRange,
+        platform: card.dataset.taskPlatform,
+        issue_category: card.dataset.taskIssueCategory,
+        responsibility: card.dataset.taskResponsibility,
+      });
+    });
+  });
+}
+
+async function updateTask(taskId, changes, messageTarget, button = null) {
+  const originalLabel = button?.textContent || "";
+  if (messageTarget?.classList) {
+    clearError(messageTarget);
+  }
+  if (button) {
+    setLoading(button, true);
+  }
+  try {
+    const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(changes),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(readError(payload));
+    }
+    await loadTasks();
+    return true;
+  } catch (error) {
+    if (messageTarget?.classList) {
+      showError(messageTarget, error.message || "任务更新失败，请重试。");
+    }
+    return false;
+  } finally {
+    if (button) {
+      setLoading(button, false);
+      button.textContent = originalLabel;
+    }
+  }
+}
+
+async function completeTask(taskId, result, messageTarget, button = null) {
+  const cleaned = String(result || "").trim();
+  if (!cleaned) {
+    showError(messageTarget, "请填写处理结果后再完成任务。");
+    return false;
+  }
+  return updateTask(
+    taskId,
+    { status: "completed", result: cleaned },
+    messageTarget,
+    button,
+  );
+}
+
+function drilldownTaskRecords(task) {
+  const range = document.getElementById("summary-range");
+  const platform = document.getElementById("platform-filter");
+  const issue = document.getElementById("issue-filter");
+  const responsibility = document.getElementById("responsibility-filter");
+  if (!range || !platform || !issue || !responsibility) {
+    return;
+  }
+  range.value = task.source_range || "all";
+  platform.value = task.platform || "";
+  platform.dataset.matchMode = "exact";
+  issue.value = task.issue_category || "";
+  responsibility.value = task.responsibility || "";
+  refreshRecordFilterViews();
+  loadRecordsSummary();
+  scrollToRecentRecords();
+}
 
 function readError(payload) {
   if (typeof payload.detail === "string") {
