@@ -126,6 +126,33 @@ function completedTask(overrides = {}) {
   };
 }
 
+function reviewPayload(overrides = {}) {
+  return {
+    task_id: "task-review",
+    state: "ready",
+    ready_at: "2026-08-17T08:00:00+00:00",
+    evidence: {
+      baseline: {
+        start: "2026-07-27T08:00:00+00:00",
+        end: "2026-08-03T08:00:00+00:00",
+        record_ids: ["before-1", "before-2"],
+        count: 2,
+      },
+      effect: {
+        start: "2026-08-10T08:00:00+00:00",
+        end: "2026-08-17T08:00:00+00:00",
+        record_ids: ["after-1"],
+        count: 1,
+      },
+      delta: -1,
+      change_rate: -0.5,
+    },
+    latest_review: null,
+    revision_count: 0,
+    ...overrides,
+  };
+}
+
 test("任务查询包含复盘状态筛选", () => {
   const { context, elements } = loadApp();
   elements.get("task-status-filter").value = "completed";
@@ -177,4 +204,119 @@ test("人工刷新只触发一次任务加载", () => {
   elements.get("task-refresh").listeners.get("click")();
 
   assert.equal(loads, 1);
+});
+
+test("复盘面板展示两个窗口、变化方向和记录 ID", () => {
+  const { context } = loadApp();
+  const html = context.taskEffectReviewPanelHtml(reviewPayload());
+
+  assert.match(html, /创建前 7 天/);
+  assert.match(html, /完成后 7 天/);
+  assert.match(html, /减少 1 条/);
+  assert.match(html, /下降 50%/);
+  assert.match(html, /before-1/);
+  assert.match(html, /after-1/);
+});
+
+test("基准期为零时不显示虚假变化比例", () => {
+  const { context } = loadApp();
+  const payload = reviewPayload();
+  payload.evidence.baseline = {
+    ...payload.evidence.baseline,
+    record_ids: [],
+    count: 0,
+  };
+  payload.evidence.change_rate = null;
+
+  const html = context.taskEffectReviewPanelHtml(payload);
+
+  assert.match(html, /基准期 0 条/);
+  assert.doesNotMatch(html, /Infinity|NaN/);
+});
+
+test("提交复盘去除空白并只刷新一次任务", async () => {
+  const { context } = loadApp();
+  const calls = [];
+  context.fetch = async (url, options) => {
+    calls.push([url, JSON.parse(options.body)]);
+    return {
+      ok: true,
+      json: async () => ({ review: { revision: 1 } }),
+    };
+  };
+  context.loadTasks = () => calls.push(["refresh"]);
+  const form = new FakeElement();
+  form.elements = {
+    verdict: { value: "effective" },
+    note: { value: "  同类问题下降  " },
+  };
+  form.setSelector(
+    "button[type='submit']",
+    new FakeElement({ textContent: "提交复盘" }),
+  );
+  form.setSelector(".form-message", new FakeElement());
+
+  const succeeded = await context.submitTaskEffectReview("task-review", form);
+
+  assert.equal(succeeded, true);
+  assert.deepEqual(calls[0], [
+    "/api/tasks/task-review/effect-reviews",
+    { verdict: "effective", note: "同类问题下降" },
+  ]);
+  assert.deepEqual(calls[1], ["refresh"]);
+});
+
+test("空复盘说明不提交且失败时保留表单", async () => {
+  const { context } = loadApp();
+  let fetches = 0;
+  context.fetch = async () => {
+    fetches += 1;
+    return { ok: false, json: async () => ({ detail: "复盘冲突" }) };
+  };
+  context.loadTasks = () => {};
+  const form = new FakeElement();
+  const message = new FakeElement();
+  form.elements = {
+    verdict: { value: "effective" },
+    note: { value: "   " },
+  };
+  form.setSelector(
+    "button[type='submit']",
+    new FakeElement({ textContent: "提交复盘" }),
+  );
+  form.setSelector(".form-message", message);
+
+  await context.submitTaskEffectReview("task-review", form);
+  assert.equal(fetches, 0);
+  assert.match(message.textContent, /复盘说明/);
+
+  form.elements.note.value = "保留这段输入";
+  await context.submitTaskEffectReview("task-review", form);
+  assert.equal(form.elements.note.value, "保留这段输入");
+  assert.equal(message.textContent, "复盘冲突");
+});
+
+test("较旧证据响应不覆盖较新的复盘面板", async () => {
+  const { context } = loadApp();
+  const first = deferred();
+  const second = deferred();
+  const panel = new FakeElement();
+  let count = 0;
+  context.fetch = () => (++count === 1 ? first.promise : second.promise);
+
+  const oldLoad = context.loadTaskEffectReview("old", panel);
+  const newLoad = context.loadTaskEffectReview("new", panel);
+  second.resolve({
+    ok: true,
+    json: async () => reviewPayload({ task_id: "new" }),
+  });
+  await newLoad;
+  first.resolve({
+    ok: true,
+    json: async () => reviewPayload({ task_id: "old" }),
+  });
+  await oldLoad;
+
+  assert.match(panel.innerHTML, /task-review-form/);
+  assert.equal(panel.dataset.taskId, "new");
 });

@@ -1300,3 +1300,15 @@ def test_static_app_js_contains_task_lifecycle_hooks(tmp_path):
     assert "completeTask" in script
     assert "drilldownTaskRecords" in script
     assert "data-task-records" in script
+
+
+def test_static_app_js_contains_task_effect_review_hooks(tmp_path):
+    client = TestClient(create_app(storage_path=tmp_path / "analyses.jsonl"))
+
+    script = client.get("/static/app.js").text
+
+    assert "latestTaskEffectReviewRequestId" in script
+    assert "loadTaskEffectReview" in script
+    assert "taskEffectReviewPanelHtml" in script
+    assert "submitTaskEffectReview" in script
+    assert "data-task-effect-review" in script

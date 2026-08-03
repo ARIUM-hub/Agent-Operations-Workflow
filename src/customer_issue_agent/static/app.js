@@ -52,6 +52,7 @@ const labels = {
 let latestExportCountRequestId = 0;
 let latestIssueTrendRequestId = 0;
 let latestTaskRequestId = 0;
+let latestTaskEffectReviewRequestId = 0;
 
 document.addEventListener("DOMContentLoaded", () => {
   bindTabs();
@@ -1455,6 +1456,73 @@ function taskEffectReviewStatusHtml(task) {
   return "";
 }
 
+function effectWindowHtml(title, window) {
+  const ids = window.record_ids || [];
+  return `
+    <article class="task-effect-window">
+      <h4>${title}</h4>
+      <p>${escapeHtml(formatTaskDateTime(window.start))} 至 ${escapeHtml(formatTaskDateTime(window.end))}</p>
+      <strong>${escapeHtml(window.count)} 条</strong>
+      <details>
+        <summary>查看 ${escapeHtml(ids.length)} 个记录 ID</summary>
+        <ul>${ids.map((id) => `<li>${escapeHtml(id)}</li>`).join("")}</ul>
+      </details>
+    </article>
+  `;
+}
+
+function effectChangeText(evidence) {
+  const delta = Number(evidence.delta || 0);
+  const direction = delta < 0
+    ? `减少 ${Math.abs(delta)} 条`
+    : delta > 0
+      ? `增加 ${delta} 条`
+      : "数量持平";
+  if (evidence.change_rate === null) {
+    return `${direction}；基准期 0 条，无法计算变化比例`;
+  }
+  const percent = Math.abs(Number(evidence.change_rate) * 100);
+  const rate = evidence.change_rate < 0
+    ? `下降 ${percent}%`
+    : evidence.change_rate > 0
+      ? `上升 ${percent}%`
+      : "变化 0%";
+  return `${direction}；${rate}`;
+}
+
+function taskEffectReviewPanelHtml(payload) {
+  const latest = payload.latest_review || {};
+  return `
+    <div class="task-effect-evidence">
+      ${effectWindowHtml("创建前 7 天", payload.evidence.baseline)}
+      ${effectWindowHtml("完成后 7 天", payload.evidence.effect)}
+    </div>
+    <p class="task-effect-change">${escapeHtml(effectChangeText(payload.evidence))}</p>
+    <form class="task-review-form">
+      <label>
+        复盘结论
+        <select name="verdict" required>
+          ${effectVerdictOptions(latest.verdict || "effective")}
+        </select>
+      </label>
+      <label>
+        复盘说明
+        <textarea name="note" rows="3" required>${escapeHtml(latest.note || "")}</textarea>
+      </label>
+      <button class="primary-action" type="submit">提交复盘</button>
+      <p class="form-message" role="alert"></p>
+    </form>
+  `;
+}
+
+function effectVerdictOptions(selected) {
+  return Object.entries(labels.task_effect_verdict)
+    .map(([value, label]) => (
+      `<option value="${value}"${value === selected ? " selected" : ""}>${escapeHtml(label)}</option>`
+    ))
+    .join("");
+}
+
 function bindTaskCreateButtons(root = document) {
   root.querySelectorAll("[data-task-create]").forEach((button) => {
     if (button.dataset.bound === "true") {
@@ -1594,7 +1662,21 @@ function highlightTask(taskId) {
 
 function taskActionsHtml(task) {
   if (task.status === "completed") {
-    return "";
+    if (task.effect_review_state === "accumulating") {
+      return "";
+    }
+    const label = task.effect_review_state === "reviewed"
+      ? "查看或修正复盘"
+      : "开始复盘";
+    return `
+      <div class="task-actions">
+        <button class="primary-action" type="button" data-task-effect-review>
+          ${label}
+        </button>
+      </div>
+      <p class="form-message" data-task-action-message role="alert"></p>
+      <div class="task-effect-review-panel" data-task-effect-review-panel hidden></div>
+    `;
   }
   const primary = task.status === "pending"
     ? `<button class="primary-action" type="button" data-task-start>开始处理</button>`
@@ -1665,6 +1747,16 @@ function bindTaskActions(root) {
     card.querySelector("[data-task-complete-toggle]")?.addEventListener("click", () => {
       card.querySelector(".task-complete-form").hidden = false;
     });
+    card.querySelector("[data-task-effect-review]")?.addEventListener(
+      "click",
+      () => {
+        const panel = card.querySelector("[data-task-effect-review-panel]");
+        if (panel) {
+          panel.hidden = false;
+          loadTaskEffectReview(taskId, panel);
+        }
+      },
+    );
 
     const editForm = card.querySelector(".task-edit-form");
     editForm?.addEventListener("submit", async (event) => {
@@ -1698,6 +1790,75 @@ function bindTaskActions(root) {
       });
     });
   });
+}
+
+async function loadTaskEffectReview(taskId, panel) {
+  const requestId = ++latestTaskEffectReviewRequestId;
+  panel.dataset.taskId = taskId;
+  panel.innerHTML = '<p class="task-loading">复盘证据加载中...</p>';
+  try {
+    const response = await fetch(
+      `/api/tasks/${encodeURIComponent(taskId)}/effect-review`,
+    );
+    const payload = await response.json();
+    if (requestId !== latestTaskEffectReviewRequestId) {
+      return;
+    }
+    if (!response.ok) {
+      throw new Error(readError(payload));
+    }
+    panel.dataset.taskId = payload.task_id;
+    panel.innerHTML = taskEffectReviewPanelHtml(payload);
+    const form = panel.querySelector(".task-review-form");
+    form?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      submitTaskEffectReview(taskId, form);
+    });
+  } catch (error) {
+    if (requestId === latestTaskEffectReviewRequestId) {
+      panel.innerHTML = `<p class="task-error">${escapeHtml(error.message || "复盘证据读取失败")}</p>`;
+    }
+  }
+}
+
+async function submitTaskEffectReview(taskId, form) {
+  const verdict = form.elements.verdict.value;
+  const note = String(form.elements.note.value || "").trim();
+  const button = form.querySelector("button[type='submit']");
+  const message = form.querySelector(".form-message");
+  if (!note) {
+    showError(message, "请填写复盘说明后再提交。");
+    return false;
+  }
+  const originalLabel = button?.textContent || "";
+  clearError(message);
+  if (button) {
+    setLoading(button, true);
+  }
+  try {
+    const response = await fetch(
+      `/api/tasks/${encodeURIComponent(taskId)}/effect-reviews`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ verdict, note }),
+      },
+    );
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(readError(payload));
+    }
+    await loadTasks();
+    return true;
+  } catch (error) {
+    showError(message, error.message || "效果复盘提交失败，请重试。");
+    return false;
+  } finally {
+    if (button) {
+      setLoading(button, false);
+      button.textContent = originalLabel;
+    }
+  }
 }
 
 async function updateTask(taskId, changes, messageTarget, button = null) {
