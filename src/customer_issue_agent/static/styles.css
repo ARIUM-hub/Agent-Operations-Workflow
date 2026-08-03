@@ -772,6 +772,11 @@ textarea:focus-visible {
   font-weight: 700;
 }
 
+.task-filters select {
+  width: auto;
+  min-width: 144px;
+}
+
 .task-metrics,
 .task-grid {
   display: grid;

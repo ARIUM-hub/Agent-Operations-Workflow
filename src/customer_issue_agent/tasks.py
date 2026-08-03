@@ -7,7 +7,6 @@ from uuid import uuid4
 from customer_issue_agent.domain import IssueCategory, Responsibility
 from customer_issue_agent.storage import AnalysisStore
 from customer_issue_agent.task_storage import TaskStore
-from customer_issue_agent.trends import build_issue_trends
 
 SOURCES = {"summary", "trend"}
 SOURCE_RANGES = {"all", "7d", "30d"}
@@ -56,6 +55,13 @@ class TaskService:
             if source == "trend"
             else _enum_value(payload.get("source_range"), SOURCE_RANGES, "统计范围")
         )
+        team_override = _optional_enum(
+            payload.get("team"), Responsibility, "责任团队"
+        )
+        priority_override = _optional_choice(
+            payload.get("priority"), PRIORITIES, "优先级"
+        )
+        due_date_override = _optional_due_date(payload.get("due_date"))
 
         tasks = self.task_store.list_tasks()
         key = _cluster_key(platform, issue_category, responsibility)
@@ -78,16 +84,10 @@ class TaskService:
         significant_increase = source == "trend" and _significant_increase(
             records, platform, issue_category, responsibility, current
         )
-        team = (
-            _optional_enum(payload.get("team"), Responsibility, "责任团队")
-            or responsibility
-        )
+        team = team_override or responsibility
         suggested_priority = "high" if significant_increase else "medium"
-        priority = (
-            _optional_choice(payload.get("priority"), PRIORITIES, "优先级")
-            or suggested_priority
-        )
-        due_date = _optional_due_date(payload.get("due_date")) or (
+        priority = priority_override or suggested_priority
+        due_date = due_date_override or (
             local_today + timedelta(days=PRIORITY_DAYS[priority])
         ).isoformat()
         timestamp = current.isoformat()
@@ -180,9 +180,9 @@ class TaskService:
         if "due_date" in payload:
             changes["due_date"] = _due_date(payload.get("due_date"))
 
-        target_status = payload.get("status")
-        if target_status is not None:
-            target_status = _enum_value(target_status, STATUSES, "状态")
+        target_status = None
+        if "status" in payload:
+            target_status = _enum_value(payload.get("status"), STATUSES, "状态")
             expected = "in_progress" if task["status"] == "pending" else "completed"
             if target_status != expected:
                 raise TaskConflictError(f"状态只能从 {task['status']} 进入 {expected}")
@@ -222,13 +222,13 @@ def _matching_record_ids(
             or (cutoff is not None and created_at < cutoff)
         ):
             continue
-        analysis = _mapping(record.get("analysis"))
-        request = _mapping(analysis.get("request"))
-        attribution = _mapping(analysis.get("attribution"))
         if (
-            _text(request.get("platform")).casefold() == platform.casefold()
-            and _text(attribution.get("issue_category")) == issue_category
-            and _text(attribution.get("primary_responsibility")) == responsibility
+            _record_matches_cluster(
+                record,
+                platform=platform,
+                issue_category=issue_category,
+                responsibility=responsibility,
+            )
             and isinstance(record.get("id"), str)
         ):
             matched.append(record["id"])
@@ -242,13 +242,45 @@ def _significant_increase(
     responsibility: str,
     now: datetime,
 ) -> bool:
-    trends = build_issue_trends(records, now=now)
-    return any(
-        _text(item.get("platform")).casefold() == platform.casefold()
-        and item.get("issue_category") == issue_category
-        and item.get("responsibility") == responsibility
-        and item.get("significant_increase") is True
-        for item in trends["clusters"]
+    current_start = now - timedelta(days=7)
+    previous_start = current_start - timedelta(days=7)
+    current_count = 0
+    previous_count = 0
+    for record in records:
+        created_at = _record_time(record.get("created_at"))
+        if (
+            created_at is None
+            or created_at < previous_start
+            or created_at > now
+            or not _record_matches_cluster(
+                record,
+                platform=platform,
+                issue_category=issue_category,
+                responsibility=responsibility,
+            )
+        ):
+            continue
+        if created_at >= current_start:
+            current_count += 1
+        else:
+            previous_count += 1
+    return current_count >= 3 and current_count - previous_count >= 2
+
+
+def _record_matches_cluster(
+    record: Mapping[str, object],
+    *,
+    platform: str,
+    issue_category: str,
+    responsibility: str,
+) -> bool:
+    analysis = _mapping(record.get("analysis"))
+    request = _mapping(analysis.get("request"))
+    attribution = _mapping(analysis.get("attribution"))
+    return (
+        _text(request.get("platform")).casefold() == platform.casefold()
+        and _text(attribution.get("issue_category")) == issue_category
+        and _text(attribution.get("primary_responsibility")) == responsibility
     )
 
 

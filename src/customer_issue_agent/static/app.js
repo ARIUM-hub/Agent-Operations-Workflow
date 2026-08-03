@@ -1350,8 +1350,13 @@ function renderTasks(payload, highlightTaskId = "") {
 }
 
 function taskCardHtml(task, now = new Date()) {
+  const localToday = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("-");
   const overdue = task.status !== "completed"
-    && new Date(`${task.due_date}T23:59:59`) < now;
+    && task.due_date < localToday;
   const source = task.source === "trend" ? "趋势问题" : "高频问题";
   const result = task.status === "completed"
     ? `

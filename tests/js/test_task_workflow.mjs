@@ -166,6 +166,16 @@ test("任务卡显示来源、状态、优先级、记录数和逾期文字", ()
   assert.doesNotMatch(completedHtml, /已逾期/);
 });
 
+test("任务在截止日结束前不显示逾期", () => {
+  const { context } = loadApp();
+  const html = context.taskCardHtml(
+    task({ due_date: "2026-08-03" }),
+    new Date("2026-08-03T23:59:59.500"),
+  );
+
+  assert.doesNotMatch(html, /已逾期/);
+});
+
 test("高频和趋势问题簇的筛选与创建按钮互为兄弟", () => {
   const { context } = loadApp();
   context.isSummaryIssueClusterFilterable = () => true;

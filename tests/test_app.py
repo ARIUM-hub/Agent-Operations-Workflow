@@ -1163,6 +1163,8 @@ def test_styles_cover_task_cards_states_overdue_and_mobile(tmp_path):
     assert ".task-card.is-highlighted" in css
     assert ".task-create-form" in css
     assert "@media (max-width: 720px)" in css
+    task_filter_styles = css.split(".task-filters select {", 1)[1].split("}", 1)[0]
+    assert "width: auto" in task_filter_styles
 
 
 def test_static_app_js_contains_task_workflow_hooks(tmp_path):

@@ -130,6 +130,26 @@ def test_trend_snapshot_is_fixed_to_seven_days_and_recomputes_increase(tmp_path)
     assert task["due_date"] == "2026-08-06"
 
 
+def test_trend_increase_merges_platform_case_variants(tmp_path):
+    records = [
+        _record("current-1", platform="Amazon", created_at=NOW - timedelta(days=1)),
+        _record("current-2", platform="amazon", created_at=NOW - timedelta(days=2)),
+        _record("current-3", platform="Amazon", created_at=NOW - timedelta(days=3)),
+        _record("previous", platform="Amazon", created_at=NOW - timedelta(days=8)),
+    ]
+    service, _ = _service(tmp_path, records)
+
+    task, _ = service.create_task(
+        _payload(source="trend"),
+        now=NOW,
+        today=TODAY,
+    )
+
+    assert task["record_count"] == 3
+    assert task["significant_increase"] is True
+    assert task["priority"] == "high"
+
+
 @pytest.mark.parametrize(
     ("priority", "expected_due_date"),
     [("high", "2026-08-06"), ("medium", "2026-08-10"), ("low", "2026-08-17")],
@@ -178,6 +198,24 @@ def test_open_task_is_reused_without_appending_duplicate_event(tmp_path):
     assert len(task_store.list_tasks()) == 1
 
 
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"team": "not-valid"},
+        {"priority": "urgent"},
+        {"due_date": "2026/08/10"},
+    ],
+)
+def test_duplicate_task_request_still_validates_override_fields(tmp_path, override):
+    service, task_store = _service(tmp_path, [_record("record-1")])
+    service.create_task(_payload(), now=NOW, today=TODAY)
+
+    with pytest.raises(TaskValidationError):
+        service.create_task(_payload(**override), now=NOW, today=TODAY)
+
+    assert len(task_store.list_tasks()) == 1
+
+
 def test_task_moves_forward_requires_result_and_allows_new_round(tmp_path):
     service, _ = _service(tmp_path, [_record("record-1")])
     first, _ = service.create_task(_payload(), now=NOW, today=TODAY)
@@ -218,6 +256,8 @@ def test_invalid_transitions_completed_edits_and_unknown_fields_are_rejected(tmp
         service.update_task(task["id"], {"title": "不能改标题"}, now=NOW)
     with pytest.raises(TaskValidationError, match="不能为空"):
         service.update_task(task["id"], {}, now=NOW)
+    with pytest.raises(TaskValidationError, match="状态"):
+        service.update_task(task["id"], {"status": None}, now=NOW)
 
     service.update_task(task["id"], {"status": "in_progress"}, now=NOW)
     with pytest.raises(TaskConflictError, match="状态"):
