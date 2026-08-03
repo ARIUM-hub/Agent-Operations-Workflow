@@ -5,6 +5,28 @@ import pytest
 from customer_issue_agent.task_storage import TaskStorageError, TaskStore
 
 
+def _review(revision: int = 1, note: str = "已更新中文说明") -> dict:
+    return {
+        "revision": revision,
+        "verdict": "effective",
+        "note": note,
+        "baseline": {
+            "start": "2026-07-27T08:00:00+00:00",
+            "end": "2026-08-03T08:00:00+00:00",
+            "record_ids": ["before-1", "before-2"],
+            "count": 2,
+        },
+        "effect": {
+            "start": "2026-08-10T08:00:00+00:00",
+            "end": "2026-08-17T08:00:00+00:00",
+            "record_ids": ["after-1"],
+            "count": 1,
+        },
+        "delta": -1,
+        "change_rate": -0.5,
+    }
+
+
 def _task(task_id: str = "task-one") -> dict:
     return {
         "id": task_id,
@@ -25,6 +47,8 @@ def _task(task_id: str = "task-one") -> dict:
         "status": "pending",
         "result": None,
         "completed_at": None,
+        "effect_review": None,
+        "effect_review_revision_count": 0,
     }
 
 
@@ -89,6 +113,41 @@ def test_utf8_result_is_written_without_ascii_escaping(tmp_path):
     assert raw.endswith("\n")
 
 
+def test_effect_review_events_project_latest_revision(tmp_path):
+    store = TaskStore(tmp_path / "tasks.jsonl")
+    store.append_created(_task())
+    store.append_effect_review(
+        "task-one", "2026-08-17T08:00:00+00:00", _review()
+    )
+    store.append_effect_review(
+        "task-one",
+        "2026-08-18T08:00:00+00:00",
+        _review(2, "修正后的复盘结论"),
+    )
+
+    task = store.list_tasks()[0]
+
+    assert task["effect_review"] == {
+        **_review(2, "修正后的复盘结论"),
+        "reviewed_at": "2026-08-18T08:00:00+00:00",
+    }
+    assert task["effect_review_revision_count"] == 2
+
+
+def test_effect_review_note_is_written_as_utf8(tmp_path):
+    path = tmp_path / "tasks.jsonl"
+    store = TaskStore(path)
+    store.append_created(_task())
+    store.append_effect_review(
+        "task-one", "2026-08-17T08:00:00+00:00", _review()
+    )
+
+    raw = path.read_text(encoding="utf-8")
+
+    assert "已更新中文说明" in raw
+    assert "\\u" not in raw
+
+
 @pytest.mark.parametrize(
     "event",
     [
@@ -99,6 +158,12 @@ def test_utf8_result_is_written_without_ascii_escaping(tmp_path):
             "task_id": "missing",
             "updated_at": "2026-08-03T08:00:00+00:00",
             "changes": {},
+        },
+        {
+            "type": "task_effect_reviewed",
+            "task_id": "missing",
+            "reviewed_at": "2026-08-17T08:00:00+00:00",
+            "review": _review(),
         },
     ],
 )
@@ -115,4 +180,24 @@ def test_invalid_json_reports_line_number(tmp_path):
     path.write_text("{broken}\n", encoding="utf-8")
 
     with pytest.raises(TaskStorageError, match="第 1 行"):
+        TaskStore(path).list_tasks()
+
+
+def test_incomplete_effect_review_event_is_rejected(tmp_path):
+    path = tmp_path / "tasks.jsonl"
+    events = [
+        {"type": "task_created", "task": _task()},
+        {
+            "type": "task_effect_reviewed",
+            "task_id": "task-one",
+            "reviewed_at": "",
+            "review": {},
+        },
+    ]
+    path.write_text(
+        "".join(json.dumps(event, ensure_ascii=False) + "\n" for event in events),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(TaskStorageError, match="复盘内容"):
         TaskStore(path).list_tasks()
