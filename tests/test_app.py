@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -10,6 +11,16 @@ from customer_issue_agent.task_storage import TaskStore
 
 def test_package_imports():
     assert __version__ == "0.1.0"
+
+
+def test_readme_describes_task_effect_review_without_polling():
+    readme = Path("README.md").read_text(encoding="utf-8")
+
+    assert "任务效果复盘" in readme
+    assert "创建前 7 天" in readme
+    assert "完成后 7 天" in readme
+    assert "有效、无明显变化、恶化" in readme
+    assert "不会自动轮询" in readme
 
 
 def test_analyze_text_endpoint_returns_report(tmp_path):
@@ -1236,6 +1247,10 @@ def test_effect_review_api_maps_missing_conflict_and_validation(tmp_path):
         "/api/tasks/task-review/effect-reviews",
         json={"verdict": "automatic", "note": "说明"},
     )
+    invalid_note = client.post(
+        "/api/tasks/task-review/effect-reviews",
+        json={"verdict": "effective", "note": {"text": "说明"}},
+    )
     invalid_filter = client.get(
         "/api/tasks", params={"effect_review_state": "late"}
     )
@@ -1243,7 +1258,30 @@ def test_effect_review_api_maps_missing_conflict_and_validation(tmp_path):
     assert missing.status_code == 404
     assert accumulating.status_code == 409
     assert invalid.status_code == 422
+    assert invalid_note.status_code == 422
     assert invalid_filter.status_code == 422
+
+
+def test_effect_review_api_maps_damaged_analysis_storage(tmp_path):
+    storage_path = tmp_path / "analyses.jsonl"
+    task_path = tmp_path / "tasks.jsonl"
+    now = datetime.now(UTC)
+    TaskStore(task_path).append_created(_completed_task_event(now))
+    storage_path.write_text("{broken}\n", encoding="utf-8")
+    client = TestClient(
+        create_app(storage_path=storage_path, task_storage_path=task_path)
+    )
+
+    preview = client.get("/api/tasks/task-review/effect-review")
+    submitted = client.post(
+        "/api/tasks/task-review/effect-reviews",
+        json={"verdict": "effective", "note": "说明"},
+    )
+
+    assert preview.status_code == 500
+    assert preview.json()["detail"] == "分析记录读取失败"
+    assert submitted.status_code == 500
+    assert submitted.json()["detail"] == "分析记录读取失败"
 
 
 def test_index_contains_task_region_and_accessible_filters(tmp_path):

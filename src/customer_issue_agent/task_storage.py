@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
+from datetime import datetime, timedelta
+from decimal import Decimal, ROUND_HALF_UP
+from math import isfinite
 from pathlib import Path
+
+EFFECT_REVIEW_VERDICTS = {"effective", "no_clear_change", "worsened"}
+EFFECT_REVIEW_PERIOD = timedelta(days=7)
 
 
 class TaskStorageError(ValueError):
@@ -124,6 +130,7 @@ class TaskStore:
                 or not isinstance(revision, int)
                 or isinstance(revision, bool)
                 or revision != expected_revision
+                or not _valid_effect_review(review, reviewed_at)
             ):
                 raise TaskStorageError(
                     f"任务事件第 {line_number} 行复盘内容不完整"
@@ -135,3 +142,74 @@ class TaskStore:
             tasks[task_id]["effect_review_revision_count"] = expected_revision
             return
         raise TaskStorageError(f"任务事件第 {line_number} 行类型未知")
+
+
+def _valid_effect_review(review: dict, reviewed_at: object) -> bool:
+    if (
+        review.get("verdict") not in EFFECT_REVIEW_VERDICTS
+        or not isinstance(review.get("note"), str)
+        or not review["note"].strip()
+        or _iso_datetime(reviewed_at) is None
+    ):
+        return False
+    baseline_count = _valid_window_count(review.get("baseline"))
+    effect_count = _valid_window_count(review.get("effect"))
+    if baseline_count is None or effect_count is None:
+        return False
+    delta = review.get("delta")
+    if (
+        not isinstance(delta, int)
+        or isinstance(delta, bool)
+        or delta != effect_count - baseline_count
+    ):
+        return False
+    change_rate = review.get("change_rate")
+    if baseline_count == 0:
+        return change_rate is None
+    if (
+        not isinstance(change_rate, (int, float))
+        or isinstance(change_rate, bool)
+        or not isfinite(change_rate)
+    ):
+        return False
+    return Decimal(str(change_rate)) == _rounded_rate(delta, baseline_count)
+
+
+def _valid_window_count(value: object) -> int | None:
+    if not isinstance(value, dict):
+        return None
+    start = _iso_datetime(value.get("start"))
+    end = _iso_datetime(value.get("end"))
+    record_ids = value.get("record_ids")
+    count = value.get("count")
+    if (
+        start is None
+        or end is None
+        or end - start != EFFECT_REVIEW_PERIOD
+        or not isinstance(record_ids, list)
+        or any(
+            not isinstance(record_id, str) or not record_id.strip()
+            for record_id in record_ids
+        )
+        or not isinstance(count, int)
+        or isinstance(count, bool)
+        or count != len(record_ids)
+    ):
+        return None
+    return count
+
+
+def _iso_datetime(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
+def _rounded_rate(delta: int, baseline_count: int) -> Decimal:
+    return (Decimal(delta) / Decimal(baseline_count)).quantize(
+        Decimal("0.0001"), rounding=ROUND_HALF_UP
+    )

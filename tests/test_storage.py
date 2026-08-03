@@ -1,8 +1,10 @@
+import pytest
+
 from customer_issue_agent.attribution import analyze_attribution
 from customer_issue_agent.domain import AnalysisRequest, AnalysisResult
 from customer_issue_agent.parser import parse_conversation
 from customer_issue_agent.report import build_report
-from customer_issue_agent.storage import AnalysisStore
+from customer_issue_agent.storage import AnalysisStorageError, AnalysisStore
 
 
 def test_store_saves_analysis_jsonl(tmp_path):
@@ -65,3 +67,11 @@ def test_store_rejects_feedback_for_missing_record(tmp_path):
         assert "missing" in str(exc)
     else:
         raise AssertionError("missing record feedback should fail")
+
+
+def test_store_reports_invalid_json_with_line_number(tmp_path):
+    path = tmp_path / "analyses.jsonl"
+    path.write_text("{broken}\n", encoding="utf-8")
+
+    with pytest.raises(AnalysisStorageError, match="第 1 行"):
+        AnalysisStore(path).list_records()

@@ -477,6 +477,30 @@ def test_zero_baseline_has_null_change_rate(tmp_path):
     assert evidence["change_rate"] is None
 
 
+def test_effect_review_change_rate_uses_half_up_rounding(tmp_path):
+    records = [
+        _record(
+            f"baseline-{index}",
+            created_at=CREATED_AT - timedelta(days=1),
+        )
+        for index in range(32)
+    ] + [
+        _record(
+            f"effect-{index}",
+            created_at=COMPLETED_AT + timedelta(days=1),
+        )
+        for index in range(33)
+    ]
+    service, _, completed = _ready_review_service(tmp_path, records)
+
+    evidence = service.get_effect_review(
+        completed["id"], now=REVIEW_READY_AT
+    )["evidence"]
+
+    assert evidence["delta"] == 1
+    assert evidence["change_rate"] == 0.0313
+
+
 def test_effect_review_submission_recomputes_and_appends_revision(tmp_path):
     records = [
         _record("baseline", created_at=CREATED_AT - timedelta(days=1)),
@@ -540,6 +564,10 @@ def test_zero_effect_window_still_accepts_human_verdict(tmp_path):
         {"verdict": "automatic", "note": "说明"},
         {"verdict": "effective", "note": "  "},
         {"verdict": "effective", "note": "说明", "record_ids": []},
+        {"verdict": "effective", "note": 1},
+        {"verdict": "effective", "note": True},
+        {"verdict": "effective", "note": []},
+        {"verdict": "effective", "note": {}},
     ],
 )
 def test_invalid_effect_review_payload_is_rejected(tmp_path, payload):

@@ -8,6 +8,10 @@ from uuid import uuid4
 from customer_issue_agent.domain import AnalysisResult
 
 
+class AnalysisStorageError(ValueError):
+    pass
+
+
 class AnalysisStore:
     def __init__(self, path: Path):
         self.path = path
@@ -53,11 +57,16 @@ class AnalysisStore:
         records: list[dict] = []
         feedback_by_record: dict[str, dict] = {}
         with self.path.open("r", encoding="utf-8") as handle:
-            for line in handle:
+            for line_number, line in enumerate(handle, start=1):
                 stripped = line.strip()
                 if not stripped:
                     continue
-                payload = json.loads(stripped)
+                try:
+                    payload = json.loads(stripped)
+                except json.JSONDecodeError as exc:
+                    raise AnalysisStorageError(
+                        f"分析记录第 {line_number} 行不是合法 JSON"
+                    ) from exc
                 if payload.get("type") == "feedback":
                     feedback_by_record[payload["record_id"]] = payload["feedback"]
                 else:

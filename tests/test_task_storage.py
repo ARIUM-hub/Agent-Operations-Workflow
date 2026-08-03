@@ -201,3 +201,45 @@ def test_incomplete_effect_review_event_is_rejected(tmp_path):
 
     with pytest.raises(TaskStorageError, match="复盘内容"):
         TaskStore(path).list_tasks()
+
+
+@pytest.mark.parametrize(
+    "review",
+    [
+        {**_review(), "verdict": "automatic"},
+        {**_review(), "note": "  "},
+        {**_review(), "baseline": []},
+        {
+            **_review(),
+            "baseline": {**_review()["baseline"], "start": "bad-time"},
+        },
+        {
+            **_review(),
+            "baseline": {**_review()["baseline"], "record_ids": [1, 2]},
+        },
+        {
+            **_review(),
+            "baseline": {**_review()["baseline"], "count": 99},
+        },
+        {**_review(), "delta": 3},
+        {**_review(), "change_rate": 1.0},
+    ],
+)
+def test_damaged_effect_review_evidence_is_rejected(tmp_path, review):
+    path = tmp_path / "tasks.jsonl"
+    events = [
+        {"type": "task_created", "task": _task()},
+        {
+            "type": "task_effect_reviewed",
+            "task_id": "task-one",
+            "reviewed_at": "2026-08-17T08:00:00+00:00",
+            "review": review,
+        },
+    ]
+    path.write_text(
+        "".join(json.dumps(event, ensure_ascii=False) + "\n" for event in events),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(TaskStorageError, match="复盘内容"):
+        TaskStore(path).list_tasks()

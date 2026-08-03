@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal, ROUND_HALF_UP
 from uuid import uuid4
 
 from customer_issue_agent.domain import IssueCategory, Responsibility
@@ -261,7 +262,7 @@ class TaskService:
         verdict = _enum_value(
             payload.get("verdict"), EFFECT_REVIEW_VERDICTS, "复盘结论"
         )
-        note = _required_text(payload.get("note"), "复盘说明")
+        note = _required_string(payload.get("note"), "复盘说明")
         evidence = _effect_review_evidence(
             self.analysis_store.list_records(), task
         )
@@ -366,7 +367,9 @@ def _effect_review_evidence(
     )
     delta = effect["count"] - baseline["count"]
     change_rate = (
-        round(delta / baseline["count"], 4) if baseline["count"] else None
+        _rounded_change_rate(delta, baseline["count"])
+        if baseline["count"]
+        else None
     )
     return {
         "baseline": baseline,
@@ -374,6 +377,13 @@ def _effect_review_evidence(
         "delta": delta,
         "change_rate": change_rate,
     }
+
+
+def _rounded_change_rate(delta: int, baseline_count: int) -> float:
+    rounded = (Decimal(delta) / Decimal(baseline_count)).quantize(
+        Decimal("0.0001"), rounding=ROUND_HALF_UP
+    )
+    return float(rounded)
 
 
 def _window_evidence(
@@ -565,6 +575,15 @@ def _due_date(value: object) -> str:
 
 def _required_text(value: object, field: str) -> str:
     cleaned = _text(value)
+    if not cleaned:
+        raise TaskValidationError(f"{field}不能为空")
+    return cleaned
+
+
+def _required_string(value: object, field: str) -> str:
+    if not isinstance(value, str):
+        raise TaskValidationError(f"{field}必须是字符串")
+    cleaned = value.strip()
     if not cleaned:
         raise TaskValidationError(f"{field}不能为空")
     return cleaned

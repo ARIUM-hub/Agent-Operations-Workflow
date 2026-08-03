@@ -1795,13 +1795,14 @@ function bindTaskActions(root) {
 async function loadTaskEffectReview(taskId, panel) {
   const requestId = ++latestTaskEffectReviewRequestId;
   panel.dataset.taskId = taskId;
+  panel.dataset.requestId = String(requestId);
   panel.innerHTML = '<p class="task-loading">复盘证据加载中...</p>';
   try {
     const response = await fetch(
       `/api/tasks/${encodeURIComponent(taskId)}/effect-review`,
     );
     const payload = await response.json();
-    if (requestId !== latestTaskEffectReviewRequestId) {
+    if (panel.dataset.requestId !== String(requestId)) {
       return;
     }
     if (!response.ok) {
@@ -1815,7 +1816,7 @@ async function loadTaskEffectReview(taskId, panel) {
       submitTaskEffectReview(taskId, form);
     });
   } catch (error) {
-    if (requestId === latestTaskEffectReviewRequestId) {
+    if (panel.dataset.requestId === String(requestId)) {
       panel.innerHTML = `<p class="task-error">${escapeHtml(error.message || "复盘证据读取失败")}</p>`;
     }
   }

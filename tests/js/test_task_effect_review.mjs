@@ -320,3 +320,31 @@ test("较旧证据响应不覆盖较新的复盘面板", async () => {
   assert.match(panel.innerHTML, /task-review-form/);
   assert.equal(panel.dataset.taskId, "new");
 });
+
+test("不同任务的复盘面板可以各自完成加载", async () => {
+  const { context } = loadApp();
+  const first = deferred();
+  const second = deferred();
+  const firstPanel = new FakeElement();
+  const secondPanel = new FakeElement();
+  let count = 0;
+  context.fetch = () => (++count === 1 ? first.promise : second.promise);
+
+  const firstLoad = context.loadTaskEffectReview("first", firstPanel);
+  const secondLoad = context.loadTaskEffectReview("second", secondPanel);
+  second.resolve({
+    ok: true,
+    json: async () => reviewPayload({ task_id: "second" }),
+  });
+  await secondLoad;
+  first.resolve({
+    ok: true,
+    json: async () => reviewPayload({ task_id: "first" }),
+  });
+  await firstLoad;
+
+  assert.match(firstPanel.innerHTML, /task-review-form/);
+  assert.match(secondPanel.innerHTML, /task-review-form/);
+  assert.equal(firstPanel.dataset.taskId, "first");
+  assert.equal(secondPanel.dataset.taskId, "second");
+});

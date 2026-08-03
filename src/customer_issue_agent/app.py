@@ -16,7 +16,7 @@ from customer_issue_agent.ingestion import extract_batch_conversation_texts, ext
 from customer_issue_agent.parser import parse_conversation
 from customer_issue_agent.record_filters import filter_records
 from customer_issue_agent.report import build_report
-from customer_issue_agent.storage import AnalysisStore
+from customer_issue_agent.storage import AnalysisStorageError, AnalysisStore
 from customer_issue_agent.summary import build_records_summary
 from customer_issue_agent.task_storage import TaskStorageError, TaskStore
 from customer_issue_agent.tasks import (
@@ -237,6 +237,7 @@ def create_app(
             TaskValidationError,
             TaskConflictError,
             TaskNotFoundError,
+            AnalysisStorageError,
             TaskStorageError,
         ) as exc:
             _raise_task_http_error(exc)
@@ -249,6 +250,7 @@ def create_app(
             TaskValidationError,
             TaskConflictError,
             TaskNotFoundError,
+            AnalysisStorageError,
             TaskStorageError,
         ) as exc:
             _raise_task_http_error(exc)
@@ -259,6 +261,8 @@ def create_app(
 def _raise_task_http_error(exc: Exception) -> None:
     if isinstance(exc, TaskStorageError):
         raise HTTPException(status_code=500, detail="任务数据读取失败") from exc
+    if isinstance(exc, AnalysisStorageError):
+        raise HTTPException(status_code=500, detail="分析记录读取失败") from exc
     if isinstance(exc, TaskNotFoundError):
         raise HTTPException(status_code=404, detail="任务不存在") from exc
     if isinstance(exc, TaskConflictError):
