@@ -14,6 +14,9 @@ from customer_issue_agent.tasks import (
 
 NOW = datetime(2026, 8, 3, 8, 0, tzinfo=UTC)
 TODAY = date(2026, 8, 3)
+CREATED_AT = datetime(2026, 8, 3, 8, 0, tzinfo=UTC)
+COMPLETED_AT = datetime(2026, 8, 5, 8, 0, tzinfo=UTC)
+REVIEW_READY_AT = datetime(2026, 8, 12, 8, 0, tzinfo=UTC)
 
 
 def _record(
@@ -75,6 +78,21 @@ def _completed_task(service: TaskService, *, completed_at: datetime) -> dict:
         {"status": "completed", "result": "已更新帮助中心"},
         now=completed_at,
     )
+
+
+def _ready_review_service(tmp_path, records: list[dict]):
+    service, store = _service(
+        tmp_path,
+        [_record("task-seed", created_at=CREATED_AT), *records],
+    )
+    task = service.create_task(_payload(), now=CREATED_AT, today=TODAY)[0]
+    service.update_task(task["id"], {"status": "in_progress"}, now=CREATED_AT)
+    completed = service.update_task(
+        task["id"],
+        {"status": "completed", "result": "已更新操作说明"},
+        now=COMPLETED_AT,
+    )
+    return service, store, completed
 
 
 @pytest.mark.parametrize(
@@ -409,3 +427,152 @@ def test_invalid_effect_review_filter_is_rejected(tmp_path):
 
     with pytest.raises(TaskValidationError, match="复盘状态"):
         service.list_tasks(effect_review_state="late", now=NOW)
+
+
+def test_effect_review_evidence_uses_half_open_windows_and_exact_cluster(tmp_path):
+    records = [
+        _record("baseline-start", created_at=CREATED_AT - timedelta(days=7)),
+        _record(
+            "baseline-middle",
+            platform="amazon",
+            created_at=CREATED_AT - timedelta(days=1),
+        ),
+        _record("baseline-end", created_at=CREATED_AT),
+        _record("effect-start", created_at=COMPLETED_AT),
+        _record("effect-middle", created_at=COMPLETED_AT + timedelta(days=1)),
+        _record("effect-end", created_at=COMPLETED_AT + timedelta(days=7)),
+        _record(
+            "other-platform",
+            platform="Amazon US",
+            created_at=COMPLETED_AT,
+        ),
+        _record("invalid-time", created_at="bad-time"),
+    ]
+    service, _, completed = _ready_review_service(tmp_path, records)
+
+    payload = service.get_effect_review(completed["id"], now=REVIEW_READY_AT)
+
+    assert payload["evidence"]["baseline"]["record_ids"] == [
+        "baseline-start",
+        "baseline-middle",
+    ]
+    assert payload["evidence"]["effect"]["record_ids"] == [
+        "effect-start",
+        "effect-middle",
+    ]
+    assert payload["evidence"]["delta"] == 0
+    assert payload["evidence"]["change_rate"] == 0.0
+
+
+def test_zero_baseline_has_null_change_rate(tmp_path):
+    records = [_record("effect", created_at=COMPLETED_AT + timedelta(days=1))]
+    service, _, completed = _ready_review_service(tmp_path, records)
+
+    evidence = service.get_effect_review(
+        completed["id"], now=REVIEW_READY_AT
+    )["evidence"]
+
+    assert evidence["baseline"]["count"] == 0
+    assert evidence["effect"]["count"] == 1
+    assert evidence["change_rate"] is None
+
+
+def test_effect_review_submission_recomputes_and_appends_revision(tmp_path):
+    records = [
+        _record("baseline", created_at=CREATED_AT - timedelta(days=1)),
+        _record("effect", created_at=COMPLETED_AT + timedelta(days=1)),
+    ]
+    service, store, completed = _ready_review_service(tmp_path, records)
+    preview = service.get_effect_review(completed["id"], now=REVIEW_READY_AT)
+    with service.analysis_store.path.open(
+        "a", encoding="utf-8", newline="\n"
+    ) as handle:
+        handle.write(
+            json.dumps(
+                _record(
+                    "effect-late-import",
+                    created_at=COMPLETED_AT + timedelta(days=2),
+                ),
+                ensure_ascii=False,
+            )
+            + "\n"
+        )
+
+    first = service.review_task_effect(
+        completed["id"],
+        {"verdict": "effective", "note": "  已更新说明  "},
+        now=REVIEW_READY_AT,
+    )
+    second = service.review_task_effect(
+        completed["id"],
+        {"verdict": "no_clear_change", "note": "修正结论"},
+        now=REVIEW_READY_AT + timedelta(hours=1),
+    )
+
+    assert preview["evidence"]["effect"]["count"] == 1
+    assert first["review"]["effect"]["count"] == 2
+    assert first["review"]["note"] == "已更新说明"
+    assert first["review"]["revision"] == 1
+    assert second["review"]["revision"] == 2
+    assert second["task"]["effect_review_state"] == "reviewed"
+    assert store.list_tasks()[0]["effect_review_revision_count"] == 2
+
+
+def test_zero_effect_window_still_accepts_human_verdict(tmp_path):
+    service, _, completed = _ready_review_service(
+        tmp_path,
+        [_record("baseline", created_at=CREATED_AT - timedelta(days=1))],
+    )
+
+    payload = service.review_task_effect(
+        completed["id"],
+        {"verdict": "worsened", "note": "运营根据其他证据判断"},
+        now=REVIEW_READY_AT,
+    )
+
+    assert payload["review"]["effect"]["count"] == 0
+    assert payload["review"]["verdict"] == "worsened"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"verdict": "automatic", "note": "说明"},
+        {"verdict": "effective", "note": "  "},
+        {"verdict": "effective", "note": "说明", "record_ids": []},
+    ],
+)
+def test_invalid_effect_review_payload_is_rejected(tmp_path, payload):
+    service, _, completed = _ready_review_service(
+        tmp_path,
+        [_record("baseline", created_at=CREATED_AT - timedelta(days=1))],
+    )
+
+    with pytest.raises(TaskValidationError):
+        service.review_task_effect(completed["id"], payload, now=REVIEW_READY_AT)
+
+
+def test_effect_review_requires_completed_and_mature_task(tmp_path):
+    service, _, completed = _ready_review_service(
+        tmp_path,
+        [_record("baseline", created_at=CREATED_AT - timedelta(days=1))],
+    )
+
+    with pytest.raises(TaskConflictError, match="数据积累"):
+        service.get_effect_review(
+            completed["id"], now=REVIEW_READY_AT - timedelta(seconds=1)
+        )
+    with pytest.raises(TaskNotFoundError):
+        service.get_effect_review("missing", now=REVIEW_READY_AT)
+
+    pending_path = tmp_path / "pending"
+    pending_path.mkdir()
+    pending_service, _ = _service(
+        pending_path,
+        [_record("pending-record", created_at=CREATED_AT)],
+    )
+    pending = pending_service.create_task(
+        _payload(), now=CREATED_AT, today=TODAY
+    )[0]
+    with pytest.raises(TaskConflictError, match="任务完成后"):
+        pending_service.get_effect_review(pending["id"], now=REVIEW_READY_AT)

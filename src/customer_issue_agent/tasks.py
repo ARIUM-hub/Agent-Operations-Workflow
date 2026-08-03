@@ -22,6 +22,8 @@ EFFECT_REVIEW_STATES = {
     "ready",
     "reviewed",
 }
+EFFECT_REVIEW_VERDICTS = {"effective", "no_clear_change", "worsened"}
+EFFECT_REVIEW_FIELDS = {"verdict", "note"}
 EFFECT_REVIEW_PERIOD = timedelta(days=7)
 
 
@@ -225,6 +227,87 @@ class TaskService:
         self.task_store.append_updated(task_id, timestamp, changes)
         return {**task, **changes, "updated_at": timestamp}
 
+    def get_effect_review(
+        self, task_id: str, *, now: datetime | None = None
+    ) -> dict:
+        current = _as_utc(now or datetime.now(UTC))
+        task = self._reviewable_task(task_id, current)
+        evidence = _effect_review_evidence(
+            self.analysis_store.list_records(), task
+        )
+        return {
+            "task_id": task_id,
+            "state": task["effect_review_state"],
+            "ready_at": task["effect_review_ready_at"],
+            "evidence": evidence,
+            "latest_review": task.get("effect_review"),
+            "revision_count": task.get("effect_review_revision_count", 0),
+        }
+
+    def review_task_effect(
+        self,
+        task_id: str,
+        payload: Mapping[str, object],
+        *,
+        now: datetime | None = None,
+    ) -> dict:
+        current = _as_utc(now or datetime.now(UTC))
+        task = self._reviewable_task(task_id, current)
+        unknown_fields = set(payload) - EFFECT_REVIEW_FIELDS
+        if unknown_fields:
+            raise TaskValidationError(
+                f"包含未知字段：{', '.join(sorted(unknown_fields))}"
+            )
+        verdict = _enum_value(
+            payload.get("verdict"), EFFECT_REVIEW_VERDICTS, "复盘结论"
+        )
+        note = _required_text(payload.get("note"), "复盘说明")
+        evidence = _effect_review_evidence(
+            self.analysis_store.list_records(), task
+        )
+        revision = int(task.get("effect_review_revision_count", 0)) + 1
+        review = {
+            "revision": revision,
+            "verdict": verdict,
+            "note": note,
+            **evidence,
+        }
+        reviewed_at = current.isoformat()
+        self.task_store.append_effect_review(task_id, reviewed_at, review)
+        projected_review = {**review, "reviewed_at": reviewed_at}
+        reviewed_task = _with_effect_review_state(
+            {
+                **task,
+                "effect_review": projected_review,
+                "effect_review_revision_count": revision,
+            },
+            current,
+        )
+        return {
+            "task": reviewed_task,
+            "review": projected_review,
+            "revision_count": revision,
+        }
+
+    def _reviewable_task(self, task_id: str, now: datetime) -> dict:
+        task = next(
+            (
+                item
+                for item in self.task_store.list_tasks()
+                if item.get("id") == task_id
+            ),
+            None,
+        )
+        if task is None:
+            raise TaskNotFoundError(task_id)
+        projected = _with_effect_review_state(task, now)
+        if task.get("status") != "completed":
+            raise TaskConflictError("任务完成后才能进行效果复盘")
+        ready_at = _record_time(projected.get("effect_review_ready_at"))
+        if ready_at is None or now < ready_at:
+            raise TaskConflictError("效果数据积累中，满 7 天后再复盘")
+        return projected
+
 
 def _matching_record_ids(
     records: list[dict],
@@ -260,6 +343,69 @@ def _matching_record_ids(
         ):
             matched.append(record["id"])
     return matched
+
+
+def _effect_review_evidence(
+    records: list[dict], task: Mapping[str, object]
+) -> dict:
+    created_at = _record_time(task.get("created_at"))
+    completed_at = _record_time(task.get("completed_at"))
+    if created_at is None or completed_at is None:
+        raise TaskValidationError("任务时间不合法")
+    baseline = _window_evidence(
+        records,
+        task,
+        start=created_at - EFFECT_REVIEW_PERIOD,
+        end=created_at,
+    )
+    effect = _window_evidence(
+        records,
+        task,
+        start=completed_at,
+        end=completed_at + EFFECT_REVIEW_PERIOD,
+    )
+    delta = effect["count"] - baseline["count"]
+    change_rate = (
+        round(delta / baseline["count"], 4) if baseline["count"] else None
+    )
+    return {
+        "baseline": baseline,
+        "effect": effect,
+        "delta": delta,
+        "change_rate": change_rate,
+    }
+
+
+def _window_evidence(
+    records: list[dict],
+    task: Mapping[str, object],
+    *,
+    start: datetime,
+    end: datetime,
+) -> dict:
+    record_ids = []
+    for record in records:
+        created_at = _record_time(record.get("created_at"))
+        record_id = record.get("id")
+        if (
+            created_at is not None
+            and start <= created_at < end
+            and isinstance(record_id, str)
+            and record_id.strip()
+            and _record_matches_cluster(
+                record,
+                platform=_text(task.get("platform")),
+                issue_category=_text(task.get("issue_category")),
+                responsibility=_text(task.get("responsibility")),
+            )
+        ):
+            record_ids.append(record_id)
+    return {
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "record_ids": record_ids,
+        "count": len(record_ids),
+    }
 
 
 def _significant_increase(
