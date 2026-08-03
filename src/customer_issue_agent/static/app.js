@@ -36,6 +36,17 @@ const labels = {
     medium: "中",
     low: "低",
   },
+  task_effect_review_state: {
+    not_applicable: "不适用",
+    accumulating: "数据积累中",
+    ready: "待复盘",
+    reviewed: "已复盘",
+  },
+  task_effect_verdict: {
+    effective: "有效",
+    no_clear_change: "无明显变化",
+    worsened: "恶化",
+  },
 };
 
 let latestExportCountRequestId = 0;
@@ -1284,20 +1295,34 @@ function updateFilterState(visible, total) {
 }
 
 function bindTaskFilters() {
-  ["task-status-filter", "task-priority-filter"].forEach((id) => {
+  [
+    "task-status-filter",
+    "task-priority-filter",
+    "task-effect-review-filter",
+  ].forEach((id) => {
     document.getElementById(id)?.addEventListener("change", () => loadTasks());
   });
+  document.querySelector("[data-task-refresh]")?.addEventListener(
+    "click",
+    () => loadTasks(),
+  );
 }
 
 function buildTaskListUrl() {
   const params = new URLSearchParams();
   const status = document.getElementById("task-status-filter")?.value || "";
   const priority = document.getElementById("task-priority-filter")?.value || "";
+  const effectReviewState = document.getElementById(
+    "task-effect-review-filter",
+  )?.value || "";
   if (status) {
     params.set("status", status);
   }
   if (priority) {
     params.set("priority", priority);
+  }
+  if (effectReviewState) {
+    params.set("effect_review_state", effectReviewState);
   }
   const query = params.toString();
   return `/api/tasks${query ? `?${query}` : ""}`;
@@ -1338,6 +1363,7 @@ function renderTasks(payload, highlightTaskId = "") {
       ${summaryMetric("待处理", payload.counts?.pending ?? 0)}
       ${summaryMetric("处理中", payload.counts?.in_progress ?? 0)}
       ${summaryMetric("已完成", payload.counts?.completed ?? 0)}
+      ${summaryMetric("待复盘", payload.effect_review_counts?.ready ?? 0)}
     </div>
     ${tasks.length
       ? `<div class="task-grid">${tasks.map((task) => taskCardHtml(task)).join("")}</div>`
@@ -1386,9 +1412,47 @@ function taskCardHtml(task, now = new Date()) {
       <p>截止日期：${escapeHtml(task.due_date)}</p>
       <button class="task-record-link" type="button" data-task-records>${escapeHtml(task.record_count)} 条关联记录</button>
       ${result}
+      ${taskEffectReviewStatusHtml(task)}
       ${taskActionsHtml(task)}
     </article>
   `;
+}
+
+function formatTaskDateTime(value) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return String(value || "暂无信息");
+  }
+  return parsed.toLocaleString("zh-CN", { hour12: false });
+}
+
+function taskEffectReviewStatusHtml(task) {
+  if (task.status !== "completed") {
+    return "";
+  }
+  if (task.effect_review_state === "accumulating") {
+    return `
+      <p class="task-review-state is-accumulating">
+        <strong>效果数据积累中</strong>
+        <span>${escapeHtml(formatTaskDateTime(task.effect_review_ready_at))} 后可复盘</span>
+      </p>
+    `;
+  }
+  if (task.effect_review_state === "ready") {
+    return `<p class="task-review-state is-ready"><strong>待效果复盘</strong></p>`;
+  }
+  if (task.effect_review_state === "reviewed") {
+    const review = task.effect_review || {};
+    return `
+      <div class="task-review-state is-reviewed">
+        <strong>${escapeHtml(labelFor("task_effect_verdict", review.verdict))}</strong>
+        <span>${escapeHtml(review.note || "暂无说明")}</span>
+        <small>复盘时间：${escapeHtml(formatTaskDateTime(review.reviewed_at))}</small>
+        <small>修订 ${escapeHtml(task.effect_review_revision_count || 1)} 次</small>
+      </div>
+    `;
+  }
+  return "";
 }
 
 function bindTaskCreateButtons(root = document) {

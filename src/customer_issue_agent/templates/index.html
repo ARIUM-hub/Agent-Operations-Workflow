@@ -149,6 +149,19 @@
                 <option value="medium">中</option>
                 <option value="low">低</option>
               </select>
+              <label for="task-effect-review-filter">复盘状态</label>
+              <select id="task-effect-review-filter">
+                <option value="">全部复盘状态</option>
+                <option value="accumulating">数据积累中</option>
+                <option value="ready">待复盘</option>
+                <option value="reviewed">已复盘</option>
+              </select>
+              <button
+                id="task-refresh"
+                class="secondary-action"
+                type="button"
+                data-task-refresh
+              >刷新任务</button>
             </div>
           </div>
           <form id="task-create-form" class="task-create-form" hidden>

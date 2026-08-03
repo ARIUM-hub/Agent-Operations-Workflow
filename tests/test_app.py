@@ -1255,6 +1255,9 @@ def test_index_contains_task_region_and_accessible_filters(tmp_path):
     assert 'id="task-content"' in html
     assert 'id="task-status-filter"' in html
     assert 'id="task-priority-filter"' in html
+    assert 'id="task-effect-review-filter"' in html
+    assert "data-task-refresh" in html
+    assert "待复盘" in html
     assert 'id="task-create-form"' in html
     assert 'aria-label="问题簇处理任务"' in html
     assert html.index('id="task-workflow"') < html.index('id="recent-records"')
