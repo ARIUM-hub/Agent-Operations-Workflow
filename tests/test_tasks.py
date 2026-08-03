@@ -67,6 +67,16 @@ def _payload(**overrides) -> dict:
     }
 
 
+def _completed_task(service: TaskService, *, completed_at: datetime) -> dict:
+    task = service.create_task(_payload(), now=NOW, today=TODAY)[0]
+    service.update_task(task["id"], {"status": "in_progress"}, now=NOW)
+    return service.update_task(
+        task["id"],
+        {"status": "completed", "result": "已更新帮助中心"},
+        now=completed_at,
+    )
+
+
 @pytest.mark.parametrize(
     ("source_range", "expected_ids"),
     [
@@ -354,3 +364,48 @@ def test_list_counts_filters_and_orders_overdue_high_priority_first(tmp_path):
     )
     with pytest.raises(TaskValidationError):
         service.list_tasks(status="reopened", today=TODAY)
+
+
+def test_task_list_exposes_effect_review_readiness_and_counts(tmp_path):
+    service, _ = _service(tmp_path, [_record("record-1")])
+    completed = _completed_task(service, completed_at=NOW + timedelta(days=1))
+
+    accumulating = service.list_tasks(now=NOW + timedelta(days=7))
+    ready = service.list_tasks(now=NOW + timedelta(days=8))
+
+    assert accumulating["tasks"][0]["effect_review_state"] == "accumulating"
+    assert accumulating["tasks"][0]["effect_review_ready_at"] == (
+        "2026-08-11T08:00:00+00:00"
+    )
+    assert accumulating["effect_review_counts"] == {
+        "accumulating": 1,
+        "ready": 0,
+        "reviewed": 0,
+    }
+    assert ready["tasks"][0]["effect_review_state"] == "ready"
+    assert ready["effect_review_counts"]["ready"] == 1
+    assert service.list_tasks(
+        effect_review_state="ready", now=NOW + timedelta(days=8)
+    )["tasks"][0]["id"] == completed["id"]
+
+
+def test_unfinished_tasks_are_not_applicable_for_effect_review(tmp_path):
+    service, _ = _service(tmp_path, [_record("record-1")])
+    service.create_task(_payload(), now=NOW, today=TODAY)
+
+    payload = service.list_tasks(now=NOW + timedelta(days=30))
+
+    assert payload["tasks"][0]["effect_review_state"] == "not_applicable"
+    assert payload["tasks"][0]["effect_review_ready_at"] is None
+    assert payload["effect_review_counts"] == {
+        "accumulating": 0,
+        "ready": 0,
+        "reviewed": 0,
+    }
+
+
+def test_invalid_effect_review_filter_is_rejected(tmp_path):
+    service, _ = _service(tmp_path, [_record("record-1")])
+
+    with pytest.raises(TaskValidationError, match="复盘状态"):
+        service.list_tasks(effect_review_state="late", now=NOW)

@@ -16,6 +16,13 @@ OPEN_STATUSES = {"pending", "in_progress"}
 UPDATE_FIELDS = {"team", "priority", "due_date", "status", "result"}
 PRIORITY_DAYS = {"high": 3, "medium": 7, "low": 14}
 PRIORITY_RANK = {"high": 3, "medium": 2, "low": 1}
+EFFECT_REVIEW_STATES = {
+    "not_applicable",
+    "accumulating",
+    "ready",
+    "reviewed",
+}
+EFFECT_REVIEW_PERIOD = timedelta(days=7)
 
 
 class TaskValidationError(ValueError):
@@ -113,6 +120,8 @@ class TaskService:
             "status": "pending",
             "result": None,
             "completed_at": None,
+            "effect_review": None,
+            "effect_review_revision_count": 0,
         }
         self.task_store.append_created(task)
         return task, True
@@ -122,22 +131,39 @@ class TaskService:
         *,
         status: str = "",
         priority: str = "",
+        effect_review_state: str = "",
+        now: datetime | None = None,
         today: date | None = None,
     ) -> dict:
+        current = _as_utc(now or datetime.now(UTC))
         status_filter = _optional_choice(status, STATUSES, "状态")
         priority_filter = _optional_choice(priority, PRIORITIES, "优先级")
-        tasks = self.task_store.list_tasks()
+        review_filter = _optional_choice(
+            effect_review_state, EFFECT_REVIEW_STATES, "复盘状态"
+        )
+        tasks = [
+            _with_effect_review_state(task, current)
+            for task in self.task_store.list_tasks()
+        ]
         counts = {
             value: sum(task.get("status") == value for task in tasks)
             for value in STATUSES
+        }
+        effect_review_counts = {
+            value: sum(task["effect_review_state"] == value for task in tasks)
+            for value in ("accumulating", "ready", "reviewed")
         }
         filtered = [
             task
             for task in tasks
             if (not status_filter or task.get("status") == status_filter)
             and (not priority_filter or task.get("priority") == priority_filter)
+            and (
+                not review_filter
+                or task["effect_review_state"] == review_filter
+            )
         ]
-        local_today = today or datetime.now().astimezone().date()
+        local_today = today or current.astimezone().date()
         filtered.sort(key=lambda task: _task_sort_key(task, local_today))
         return {
             "counts": {
@@ -145,6 +171,7 @@ class TaskService:
                 "in_progress": counts["in_progress"],
                 "completed": counts["completed"],
             },
+            "effect_review_counts": effect_review_counts,
             "tasks": filtered,
         }
 
@@ -303,6 +330,28 @@ def _task_sort_key(task: dict, today: date) -> tuple:
         -_timestamp(task.get("created_at")),
         str(task.get("id")),
     )
+
+
+def _with_effect_review_state(task: dict, now: datetime) -> dict:
+    if task.get("status") != "completed":
+        return {
+            **task,
+            "effect_review_state": "not_applicable",
+            "effect_review_ready_at": None,
+        }
+    completed_at = _record_time(task.get("completed_at"))
+    if completed_at is None:
+        raise TaskValidationError("任务完成时间不合法")
+    ready_at = completed_at + EFFECT_REVIEW_PERIOD
+    if task.get("effect_review") is not None:
+        state = "reviewed"
+    else:
+        state = "ready" if now >= ready_at else "accumulating"
+    return {
+        **task,
+        "effect_review_state": state,
+        "effect_review_ready_at": ready_at.isoformat(),
+    }
 
 
 def _task_key(task: Mapping[str, object]) -> tuple[str, str, str]:
