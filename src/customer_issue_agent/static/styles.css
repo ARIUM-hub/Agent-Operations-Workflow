@@ -784,7 +784,7 @@ textarea:focus-visible {
 }
 
 .task-metrics {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .task-grid {
@@ -874,6 +874,84 @@ textarea:focus-visible {
   border-left: 3px solid var(--accent);
   margin: 0;
   padding-left: 12px;
+}
+
+.task-review-state {
+  display: grid;
+  gap: 4px;
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--paper) 88%, var(--accent) 12%);
+}
+
+.task-review-state.is-ready {
+  border-color: color-mix(in srgb, var(--signal) 45%, var(--line));
+}
+
+.task-review-state.is-reviewed {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+
+.task-effect-review-panel {
+  display: grid;
+  gap: 14px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.task-effect-review-panel[hidden] {
+  display: none;
+}
+
+.task-effect-evidence {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.task-effect-window {
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.task-effect-window h4,
+.task-effect-window p {
+  margin: 0 0 8px;
+}
+
+.task-effect-window ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  overflow-wrap: anywhere;
+}
+
+.task-effect-change {
+  margin: 0;
+  font-weight: 800;
+}
+
+.task-review-form {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.35fr) minmax(240px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.task-review-form label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.task-review-form .form-message {
+  grid-column: 1 / -1;
 }
 
 .task-create-form {
@@ -1017,6 +1095,15 @@ textarea:focus-visible {
   .task-edit-form,
   .task-complete-form {
     grid-template-columns: 1fr;
+  }
+
+  .task-effect-evidence,
+  .task-review-form {
+    grid-template-columns: 1fr;
+  }
+
+  .task-review-form .form-message {
+    grid-column: auto;
   }
 
   .task-edit-form .form-message,

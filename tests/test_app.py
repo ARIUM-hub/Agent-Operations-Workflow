@@ -1274,6 +1274,12 @@ def test_styles_cover_task_cards_states_overdue_and_mobile(tmp_path):
     assert ".task-overdue" in css
     assert ".task-card.is-highlighted" in css
     assert ".task-create-form" in css
+    assert ".task-review-state" in css
+    assert ".task-effect-review-panel" in css
+    assert ".task-effect-evidence" in css
+    assert ".task-effect-window" in css
+    assert ".task-effect-change" in css
+    assert ".task-review-form" in css
     assert "@media (max-width: 720px)" in css
     task_filter_styles = css.split(".task-filters select {", 1)[1].split("}", 1)[0]
     assert "width: auto" in task_filter_styles
