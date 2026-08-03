@@ -1163,3 +1163,14 @@ def test_styles_cover_task_cards_states_overdue_and_mobile(tmp_path):
     assert ".task-card.is-highlighted" in css
     assert ".task-create-form" in css
     assert "@media (max-width: 720px)" in css
+
+
+def test_static_app_js_contains_task_workflow_hooks(tmp_path):
+    client = TestClient(create_app(storage_path=tmp_path / "analyses.jsonl"))
+
+    script = client.get("/static/app.js").text
+
+    assert "latestTaskRequestId" in script
+    assert "loadTasks" in script
+    assert "submitTaskCreate" in script
+    assert "data-task-create" in script

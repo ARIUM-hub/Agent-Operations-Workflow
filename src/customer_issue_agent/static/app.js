@@ -26,10 +26,21 @@ const labels = {
     accepted: "已认可",
     corrected: "已修正",
   },
+  task_status: {
+    pending: "待处理",
+    in_progress: "处理中",
+    completed: "已完成",
+  },
+  task_priority: {
+    high: "高",
+    medium: "中",
+    low: "低",
+  },
 };
 
 let latestExportCountRequestId = 0;
 let latestIssueTrendRequestId = 0;
+let latestTaskRequestId = 0;
 
 document.addEventListener("DOMContentLoaded", () => {
   bindTabs();
@@ -40,6 +51,9 @@ document.addEventListener("DOMContentLoaded", () => {
   bindSummaryRange();
   loadRecordsSummary();
   loadIssueTrends();
+  bindTaskFilters();
+  bindTaskCreateForm();
+  loadTasks();
   bindFilteredExport();
   bindRecordFilters();
   bindReviewQueueToggle();
@@ -555,6 +569,7 @@ function renderIssueTrends(trends) {
     </article>
   `;
   bindIssueTrendFilters(container);
+  bindTaskCreateButtons(container);
 }
 
 function issueTrendRows(items = []) {
@@ -597,7 +612,7 @@ function issueTrendRow(item) {
 
   const ariaLabel = `筛选趋势问题：${platform}，${issueLabel}，责任方${responsibilityLabel}，本期${currentCount}条，上期${previousCount}条`;
   return `
-    <li class="trend-row">
+    <li class="trend-row issue-cluster-actions">
       <button
         class="trend-row-button"
         type="button"
@@ -607,6 +622,16 @@ function issueTrendRow(item) {
         data-trend-responsibility="${escapeHtml(responsibility)}"
         aria-label="${escapeHtml(ariaLabel)}"
       >${content}</button>
+      <button
+        class="secondary-action task-create-trigger"
+        type="button"
+        data-task-create
+        data-task-source="trend"
+        data-task-platform="${escapeHtml(platform)}"
+        data-task-issue-category="${escapeHtml(issueCategory)}"
+        data-task-responsibility="${escapeHtml(responsibility)}"
+        data-task-significant-increase="${item.significant_increase === true}"
+      >创建任务</button>
     </li>
   `;
 }
@@ -676,6 +701,7 @@ function renderRecordsSummary(summary) {
   `;
   bindSummaryPlatformFilters(container);
   bindSummaryIssueClusterFilters(container);
+  bindTaskCreateButtons(container);
 }
 
 function summaryIssueClusters(items = []) {
@@ -714,7 +740,7 @@ function summaryIssueClusterRow(item) {
 
   const ariaLabel = `筛选高频问题：${platform}，${issueLabel}，责任方${responsibilityLabel}，共${count}条`;
   return `
-    <li>
+    <li class="issue-cluster-actions">
       <button
         class="issue-cluster-filter"
         type="button"
@@ -724,6 +750,16 @@ function summaryIssueClusterRow(item) {
         data-summary-cluster-responsibility="${escapeHtml(responsibility)}"
         aria-label="${escapeHtml(ariaLabel)}"
       >${content}</button>
+      <button
+        class="secondary-action task-create-trigger"
+        type="button"
+        data-task-create
+        data-task-source="summary"
+        data-task-platform="${escapeHtml(platform)}"
+        data-task-issue-category="${escapeHtml(issueCategory)}"
+        data-task-responsibility="${escapeHtml(responsibility)}"
+        data-task-significant-increase="false"
+      >创建任务</button>
     </li>
   `;
 }
@@ -1246,6 +1282,241 @@ function updateFilterState(visible, total) {
     empty.hidden = visible > 0 || total === 0;
   }
 }
+
+function bindTaskFilters() {
+  ["task-status-filter", "task-priority-filter"].forEach((id) => {
+    document.getElementById(id)?.addEventListener("change", () => loadTasks());
+  });
+}
+
+function buildTaskListUrl() {
+  const params = new URLSearchParams();
+  const status = document.getElementById("task-status-filter")?.value || "";
+  const priority = document.getElementById("task-priority-filter")?.value || "";
+  if (status) {
+    params.set("status", status);
+  }
+  if (priority) {
+    params.set("priority", priority);
+  }
+  const query = params.toString();
+  return `/api/tasks${query ? `?${query}` : ""}`;
+}
+
+async function loadTasks({ highlightTaskId = "" } = {}) {
+  const container = document.getElementById("task-content");
+  if (!container) {
+    return;
+  }
+  const requestId = ++latestTaskRequestId;
+  try {
+    const response = await fetch(buildTaskListUrl());
+    const payload = await response.json();
+    if (requestId !== latestTaskRequestId) {
+      return;
+    }
+    if (!response.ok) {
+      throw new Error(readError(payload));
+    }
+    renderTasks(payload, highlightTaskId);
+  } catch (error) {
+    if (requestId !== latestTaskRequestId) {
+      return;
+    }
+    container.innerHTML = `<p class="task-error">${escapeHtml(error.message || "任务数据读取失败")}</p>`;
+  }
+}
+
+function renderTasks(payload, highlightTaskId = "") {
+  const container = document.getElementById("task-content");
+  if (!container) {
+    return;
+  }
+  const tasks = payload.tasks || [];
+  container.innerHTML = `
+    <div class="task-metrics">
+      ${summaryMetric("待处理", payload.counts?.pending ?? 0)}
+      ${summaryMetric("处理中", payload.counts?.in_progress ?? 0)}
+      ${summaryMetric("已完成", payload.counts?.completed ?? 0)}
+    </div>
+    ${tasks.length
+      ? `<div class="task-grid">${tasks.map((task) => taskCardHtml(task)).join("")}</div>`
+      : `<p class="task-empty">当前筛选下暂无处理任务。</p>`}
+  `;
+  bindTaskActions(container);
+  if (highlightTaskId) {
+    highlightTask(highlightTaskId);
+  }
+}
+
+function taskCardHtml(task, now = new Date()) {
+  const overdue = task.status !== "completed"
+    && new Date(`${task.due_date}T23:59:59`) < now;
+  const source = task.source === "trend" ? "趋势问题" : "高频问题";
+  const result = task.status === "completed"
+    ? `
+      <p class="task-result"><strong>处理结果：</strong>${escapeHtml(task.result || "暂无信息")}</p>
+      <p>完成时间：${escapeHtml(task.completed_at || "暂无信息")}</p>
+    `
+    : "";
+  return `
+    <article class="task-card" data-task-id="${escapeHtml(task.id)}">
+      <div class="task-card-header">
+        <h3>${escapeHtml(task.title)}</h3>
+        <span class="task-status">${escapeHtml(labelFor("task_status", task.status))}</span>
+      </div>
+      <div class="task-card-meta">
+        <span class="task-source">${source}</span>
+        <span class="task-priority">${escapeHtml(labelFor("task_priority", task.priority))}优先级</span>
+        ${overdue ? `<span class="task-overdue">已逾期</span>` : ""}
+      </div>
+      <p>责任团队：${escapeHtml(labelFor("responsibility", task.team))}</p>
+      <p>截止日期：${escapeHtml(task.due_date)}</p>
+      <button class="task-record-link" type="button" data-task-records>${escapeHtml(task.record_count)} 条关联记录</button>
+      ${result}
+      <div class="task-actions"></div>
+    </article>
+  `;
+}
+
+function bindTaskCreateButtons(root = document) {
+  root.querySelectorAll("[data-task-create]").forEach((button) => {
+    if (button.dataset.bound === "true") {
+      return;
+    }
+    button.dataset.bound = "true";
+    button.addEventListener("click", () => openTaskCreateForm(createTaskDraft({
+      source: button.dataset.taskSource || "summary",
+      platform: button.dataset.taskPlatform || "",
+      issueCategory: button.dataset.taskIssueCategory || "",
+      responsibility: button.dataset.taskResponsibility || "",
+      significantIncrease: button.dataset.taskSignificantIncrease === "true",
+    })));
+  });
+}
+
+function createTaskDraft({
+  source,
+  platform,
+  issueCategory,
+  responsibility,
+  significantIncrease,
+}) {
+  const sourceRange = source === "trend"
+    ? "7d"
+    : document.getElementById("summary-range")?.value || "all";
+  const priority = source === "trend" && significantIncrease ? "high" : "medium";
+  return {
+    source,
+    sourceRange,
+    platform,
+    issueCategory,
+    responsibility,
+    significantIncrease,
+    team: responsibility,
+    priority,
+    dueDate: suggestedDueDate(priority),
+  };
+}
+
+function suggestedDueDate(priority, now = new Date()) {
+  const days = { high: 3, medium: 7, low: 14 }[priority] || 7;
+  const value = new Date(now.getFullYear(), now.getMonth(), now.getDate() + days);
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function openTaskCreateForm(draft) {
+  const form = document.getElementById("task-create-form");
+  if (!form) {
+    return;
+  }
+  form.hidden = false;
+  form.elements.source.value = draft.source;
+  form.elements.source_range.value = draft.sourceRange;
+  form.elements.platform.value = draft.platform;
+  form.elements.issue_category.value = draft.issueCategory;
+  form.elements.responsibility.value = draft.responsibility;
+  form.elements.team.value = draft.team;
+  form.elements.priority.value = draft.priority;
+  form.elements.due_date.value = draft.dueDate;
+  form.querySelector("[data-task-create-title]").textContent = (
+    `${draft.platform} · ${labelFor("issue_category", draft.issueCategory)} · `
+    + labelFor("responsibility", draft.responsibility)
+  );
+  form.querySelector("[data-task-create-source]").textContent = draft.source === "trend"
+    ? "来源：近 7 天趋势"
+    : `来源：高频问题（${draft.sourceRange}）`;
+  clearError(form.querySelector(".form-message"));
+  form.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function bindTaskCreateForm() {
+  const form = document.getElementById("task-create-form");
+  if (!form) {
+    return;
+  }
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submitTaskCreate(form);
+  });
+  form.querySelector("[data-task-create-cancel]")?.addEventListener("click", () => {
+    form.hidden = true;
+  });
+  form.elements.priority.addEventListener("change", () => {
+    form.elements.due_date.value = suggestedDueDate(form.elements.priority.value);
+  });
+}
+
+async function submitTaskCreate(form) {
+  const button = form.querySelector("button[type='submit']");
+  const message = form.querySelector(".form-message");
+  const originalLabel = button.textContent;
+  setLoading(button, true);
+  clearError(message);
+  try {
+    const response = await fetch("/api/tasks", {
+      method: "POST",
+      body: new FormData(form),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(readError(payload));
+    }
+    form.hidden = true;
+    if (!payload.created) {
+      const status = document.getElementById("task-status-filter");
+      const priority = document.getElementById("task-priority-filter");
+      if (status) {
+        status.value = "";
+      }
+      if (priority) {
+        priority.value = "";
+      }
+    }
+    await loadTasks(payload.created ? {} : { highlightTaskId: payload.task.id });
+  } catch (error) {
+    showError(message, error.message || "任务创建失败，请重试。");
+  } finally {
+    setLoading(button, false);
+    button.textContent = originalLabel;
+  }
+}
+
+function highlightTask(taskId) {
+  const cards = Array.from(document.querySelectorAll("[data-task-id]"));
+  const card = cards.find((item) => item.dataset.taskId === taskId);
+  if (!card) {
+    return;
+  }
+  card.classList.add("is-highlighted");
+  card.scrollIntoView({ behavior: "smooth", block: "center" });
+  setTimeout(() => card.classList.remove("is-highlighted"), 1800);
+}
+
+function bindTaskActions() {}
 
 function readError(payload) {
   if (typeof payload.detail === "string") {
