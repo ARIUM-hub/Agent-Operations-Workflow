@@ -70,6 +70,7 @@ function loadApp({ includeTasks = true } = {}) {
     elements.set("task-content", new FakeElement());
     elements.set("task-status-filter", new FakeElement());
     elements.set("task-priority-filter", new FakeElement());
+    elements.set("task-effect-review-filter", new FakeElement());
   }
   elements.set("summary-range", new FakeElement({ value: "30d" }));
   const document = {
@@ -254,6 +255,7 @@ test("新建和重复任务各刷新一次，重复任务清空筛选并定位�
   await context.submitTaskCreate(form);
   elements.get("task-status-filter").value = "completed";
   elements.get("task-priority-filter").value = "high";
+  elements.get("task-effect-review-filter").value = "ready";
   await context.submitTaskCreate(form);
 
   assert.equal(calls.length, 2);
@@ -261,6 +263,7 @@ test("新建和重复任务各刷新一次，重复任务清空筛选并定位�
   assert.equal(calls[1].highlightTaskId, "task-one");
   assert.equal(elements.get("task-status-filter").value, "");
   assert.equal(elements.get("task-priority-filter").value, "");
+  assert.equal(elements.get("task-effect-review-filter").value, "");
 });
 
 test("创建失败保留表单并显示局部错误且不刷新任务", async () => {

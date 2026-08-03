@@ -270,6 +270,20 @@ def test_task_moves_forward_requires_result_and_allows_new_round(tmp_path):
     assert second["id"] != first["id"]
 
 
+@pytest.mark.parametrize("result", [True, [], {}])
+def test_task_completion_rejects_non_string_result(tmp_path, result):
+    service, _ = _service(tmp_path, [_record("record-1")])
+    task, _ = service.create_task(_payload(), now=NOW, today=TODAY)
+    service.update_task(task["id"], {"status": "in_progress"}, now=NOW)
+
+    with pytest.raises(TaskValidationError, match="处理结果必须是字符串"):
+        service.update_task(
+            task["id"],
+            {"status": "completed", "result": result},
+            now=NOW,
+        )
+
+
 def test_invalid_transitions_completed_edits_and_unknown_fields_are_rejected(tmp_path):
     service, _ = _service(tmp_path, [_record("record-1")])
     task, _ = service.create_task(_payload(), now=NOW, today=TODAY)

@@ -219,7 +219,7 @@ class TaskService:
             changes["status"] = target_status
 
         if target_status == "completed":
-            result = _required_text(payload.get("result"), "处理结果")
+            result = _required_string(payload.get("result"), "处理结果")
             changes.update({"result": result, "completed_at": current.isoformat()})
         elif "result" in payload:
             raise TaskValidationError("只有完成任务时才能填写处理结果")

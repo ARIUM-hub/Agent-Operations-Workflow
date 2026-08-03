@@ -1633,11 +1633,15 @@ async function submitTaskCreate(form) {
     if (!payload.created) {
       const status = document.getElementById("task-status-filter");
       const priority = document.getElementById("task-priority-filter");
+      const effectReview = document.getElementById("task-effect-review-filter");
       if (status) {
         status.value = "";
       }
       if (priority) {
         priority.value = "";
+      }
+      if (effectReview) {
+        effectReview.value = "";
       }
     }
     await loadTasks(payload.created ? {} : { highlightTaskId: payload.task.id });
