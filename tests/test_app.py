@@ -152,6 +152,21 @@ def test_index_renders_workbench(tmp_path):
     assert "conversation_text" in response.text
 
 
+def test_index_contains_product_inputs_filters_and_task_sku_field(tmp_path):
+    client = TestClient(create_app(storage_path=tmp_path / "analyses.jsonl"))
+
+    html = client.get("/").text
+
+    for form_prefix in ("paste", "upload", "batch"):
+        assert f'id="{form_prefix}-store-name"' in html
+        assert f'id="{form_prefix}-sku"' in html
+        assert f'id="{form_prefix}-platform-product-id"' in html
+    assert 'id="store-filter"' in html
+    assert 'id="sku-filter"' in html
+    assert 'id="platform-product-id-filter"' in html
+    assert '<input type="hidden" name="sku">' in html
+
+
 def test_analyze_text_response_exposes_fields_for_ui(tmp_path):
     app = create_app(storage_path=tmp_path / "analyses.jsonl")
     client = TestClient(app)

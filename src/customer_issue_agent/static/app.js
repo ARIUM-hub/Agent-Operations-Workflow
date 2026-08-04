@@ -308,13 +308,21 @@ function batchSummaryDistribution(title, labelGroup, items = []) {
 function buildRecordCard(payload) {
   const analysis = payload.analysis;
   const attribution = analysis.attribution;
+  const request = analysis.request;
   const article = document.createElement("article");
   article.className = "record result-record";
   article.dataset.recordId = payload.record_id;
+  article.dataset.platform = request.platform || "";
+  article.dataset.storeName = request.store_name || "";
+  article.dataset.sku = request.sku || "";
+  article.dataset.platformProductId = request.platform_product_id || "";
+  article.dataset.issueCategory = attribution.issue_category || "";
+  article.dataset.responsibility = attribution.primary_responsibility || "";
   article.dataset.feedbackStatus = "unreviewed";
   article.innerHTML = `
     <div class="record-meta" data-record-meta>
       <strong>${escapeHtml(analysis.request.platform)}</strong>
+      ${productMetaHtml(request)}
       <span>${labelFor("issue_category", attribution.issue_category)}</span>
       <span>${labelFor("responsibility", attribution.primary_responsibility)}</span>
       <span>${labelFor("evidence", attribution.evidence_strength)}</span>
@@ -442,6 +450,7 @@ function prependRecentRecord(payload) {
   const list = document.getElementById("recent-records");
   const analysis = payload.analysis;
   const attribution = analysis.attribution;
+  const request = analysis.request;
   const empty = list.querySelector(".empty");
   if (empty) {
     empty.remove();
@@ -450,16 +459,27 @@ function prependRecentRecord(payload) {
   const article = document.createElement("article");
   article.className = "record";
   article.dataset.recordId = payload.record_id;
-  article.dataset.platform = analysis.request.platform;
+  article.dataset.platform = request.platform;
+  article.dataset.storeName = request.store_name || "";
+  article.dataset.sku = request.sku || "";
+  article.dataset.platformProductId = request.platform_product_id || "";
   article.dataset.issueCategory = attribution.issue_category;
   article.dataset.responsibility = attribution.primary_responsibility;
-  const searchBaseText = `${payload.record_id} ${analysis.request.platform} ${analysis.report}`;
+  const searchBaseText = [
+    payload.record_id,
+    request.platform,
+    request.store_name,
+    request.sku,
+    request.platform_product_id,
+    analysis.report,
+  ].filter(Boolean).join(" ");
   article.dataset.feedbackStatus = "unreviewed";
   article.dataset.searchBaseText = searchBaseText;
   article.dataset.searchText = searchBaseText;
   article.innerHTML = `
     <div class="record-meta" data-record-meta>
       <strong>${escapeHtml(analysis.request.platform)}</strong>
+      ${productMetaHtml(request)}
       <span>${labelFor("issue_category", attribution.issue_category)}</span>
       <span>${labelFor("responsibility", attribution.primary_responsibility)}</span>
       <span>${labelFor("evidence", attribution.evidence_strength)}</span>
@@ -480,6 +500,14 @@ function resultCard(title, body) {
       <p>${escapeHtml(body || "暂无信息。")}</p>
     </article>
   `;
+}
+
+function productMetaHtml(request = {}) {
+  return [
+    request.store_name ? `<span>${escapeHtml(request.store_name)}</span>` : "",
+    request.sku ? `<span>SKU ${escapeHtml(request.sku)}</span>` : "",
+    request.platform_product_id ? `<span>${escapeHtml(request.platform_product_id)}</span>` : "",
+  ].join("");
 }
 
 function labelFor(group, value) {
@@ -929,6 +957,9 @@ function buildExportFilterParams() {
   const query = document.getElementById("record-search")?.value.trim() || "";
   const platformFilter = document.getElementById("platform-filter");
   const platform = platformFilter?.value.trim() || "";
+  const storeName = document.getElementById("store-filter")?.value.trim() || "";
+  const sku = document.getElementById("sku-filter")?.value.trim() || "";
+  const platformProductId = document.getElementById("platform-product-id-filter")?.value.trim() || "";
   const issue = document.getElementById("issue-filter")?.value || "";
   const responsibility = document.getElementById("responsibility-filter")?.value || "";
   const feedback = document.getElementById("feedback-filter")?.value || "";
@@ -945,6 +976,9 @@ function buildExportFilterParams() {
       params.set("platform_match", "exact");
     }
   }
+  if (storeName) params.set("store_name", storeName);
+  if (sku) params.set("sku", sku);
+  if (platformProductId) params.set("platform_product_id", platformProductId);
   if (issue) {
     params.set("issue_category", issue);
   }
@@ -986,6 +1020,9 @@ function updateExportFilterSummary() {
 
   const query = document.getElementById("record-search")?.value.trim() || "";
   const platform = document.getElementById("platform-filter")?.value.trim() || "";
+  const storeName = document.getElementById("store-filter")?.value.trim() || "";
+  const sku = document.getElementById("sku-filter")?.value.trim() || "";
+  const platformProductId = document.getElementById("platform-product-id-filter")?.value.trim() || "";
   const issue = document.getElementById("issue-filter")?.value || "";
   const responsibility = document.getElementById("responsibility-filter")?.value || "";
   const feedback = document.getElementById("feedback-filter")?.value || "";
@@ -995,6 +1032,9 @@ function updateExportFilterSummary() {
   if (platform) {
     conditions.push(`平台：${platform}`);
   }
+  if (storeName) conditions.push(`店铺：${storeName}`);
+  if (sku) conditions.push(`SKU：${sku}`);
+  if (platformProductId) conditions.push(`平台商品 ID：${platformProductId}`);
   if (query) {
     conditions.push(`关键词：${query}`);
   }
@@ -1181,6 +1221,9 @@ function recordDetailHtml(recordId, analysis, feedback = null) {
       <p class="record-copy-status" data-record-copy-status aria-live="polite"></p>
       <dl class="record-detail-grid">
         ${recordDetailRow("客户问题", attribution.customer_problem)}
+        ${analysis.request.store_name ? recordDetailRow("店铺", analysis.request.store_name) : ""}
+        ${analysis.request.sku ? recordDetailRow("SKU", analysis.request.sku) : ""}
+        ${analysis.request.platform_product_id ? recordDetailRow("平台商品 ID", analysis.request.platform_product_id) : ""}
         ${recordDetailRow("问题类型", labelFor("issue_category", attribution.issue_category))}
         ${recordDetailRow("业务原因", listText((attribution.root_causes || []).map((item) => labelFor("rootCause", item))))}
         ${recordDetailRow("优先责任方", labelFor("responsibility", attribution.primary_responsibility))}
@@ -1241,6 +1284,9 @@ function applyRecordFilters() {
   const platformFilter = document.getElementById("platform-filter");
   const platform = platformFilter?.value.trim().toLowerCase() || "";
   const platformMatch = platformFilter?.dataset.matchMode || "";
+  const storeName = document.getElementById("store-filter")?.value.trim().toLowerCase() || "";
+  const sku = document.getElementById("sku-filter")?.value.trim().toLowerCase() || "";
+  const platformProductId = document.getElementById("platform-product-id-filter")?.value.trim().toLowerCase() || "";
   const issue = document.getElementById("issue-filter")?.value || "";
   const responsibility = document.getElementById("responsibility-filter")?.value || "";
   const feedback = document.getElementById("feedback-filter")?.value || "";
@@ -1249,7 +1295,17 @@ function applyRecordFilters() {
   records.forEach((record) => {
     const matches = recordMatchesFilters(
       record,
-      { query, platform, platformMatch, issue, responsibility, feedback },
+      {
+        query,
+        platform,
+        platformMatch,
+        storeName,
+        sku,
+        platformProductId,
+        issue,
+        responsibility,
+        feedback,
+      },
     );
     record.hidden = !matches;
     if (matches) {
@@ -1272,6 +1328,9 @@ function resetRecordFilters(form) {
 function recordMatchesFilters(record, filters) {
   const searchText = (record.dataset.searchText || "").toLowerCase();
   const platform = (record.dataset.platform || "").toLowerCase();
+  const storeName = (record.dataset.storeName || "").toLowerCase();
+  const sku = (record.dataset.sku || "").toLowerCase();
+  const platformProductId = (record.dataset.platformProductId || "").toLowerCase();
   const matchesQuery = !filters.query || searchText.includes(filters.query);
   const matchesPlatform = !filters.platform || (
     filters.platformMatch === "exact"
@@ -1279,9 +1338,19 @@ function recordMatchesFilters(record, filters) {
       : platform.includes(filters.platform)
   );
   const matchesIssue = !filters.issue || record.dataset.issueCategory === filters.issue;
+  const matchesStore = !filters.storeName || storeName.includes(filters.storeName);
+  const matchesSku = !filters.sku || sku === filters.sku;
+  const matchesProductId = !filters.platformProductId || platformProductId === filters.platformProductId;
   const matchesResponsibility = !filters.responsibility || record.dataset.responsibility === filters.responsibility;
   const matchesFeedback = !filters.feedback || record.dataset.feedbackStatus === filters.feedback;
-  return matchesQuery && matchesPlatform && matchesIssue && matchesResponsibility && matchesFeedback;
+  return matchesQuery
+    && matchesPlatform
+    && matchesStore
+    && matchesSku
+    && matchesProductId
+    && matchesIssue
+    && matchesResponsibility
+    && matchesFeedback;
 }
 
 function updateFilterState(visible, total) {

@@ -32,6 +32,11 @@
                 <label for="paste-platform">平台来源</label>
                 <input id="paste-platform" name="platform" list="platform-presets" value="Other overseas platform">
               </div>
+              <div class="product-fields" aria-label="商品信息（可选）">
+                <label class="field" for="paste-store-name"><span>店铺</span><input id="paste-store-name" name="store_name" maxlength="200"></label>
+                <label class="field" for="paste-sku"><span>SKU</span><input id="paste-sku" name="sku" maxlength="200"></label>
+                <label class="field" for="paste-platform-product-id"><span>平台商品 ID</span><input id="paste-platform-product-id" name="platform_product_id" maxlength="200"></label>
+              </div>
 
               <div id="paste-panel" class="tab-panel" role="tabpanel">
                 <div class="field">
@@ -47,6 +52,11 @@
               <div class="field">
                 <label for="upload-platform">平台来源</label>
                 <input id="upload-platform" name="platform" list="platform-presets" value="Other overseas platform">
+              </div>
+              <div class="product-fields" aria-label="商品信息（可选）">
+                <label class="field" for="upload-store-name"><span>店铺</span><input id="upload-store-name" name="store_name" maxlength="200"></label>
+                <label class="field" for="upload-sku"><span>SKU</span><input id="upload-sku" name="sku" maxlength="200"></label>
+                <label class="field" for="upload-platform-product-id"><span>平台商品 ID</span><input id="upload-platform-product-id" name="platform_product_id" maxlength="200"></label>
               </div>
 
               <div id="upload-panel" class="tab-panel" role="tabpanel" hidden>
@@ -64,6 +74,11 @@
               <div class="field">
                 <label for="batch-platform">平台来源</label>
                 <input id="batch-platform" name="platform" list="platform-presets" value="Other overseas platform">
+              </div>
+              <div class="product-fields" aria-label="商品信息（可选）">
+                <label class="field" for="batch-store-name"><span>店铺</span><input id="batch-store-name" name="store_name" maxlength="200"></label>
+                <label class="field" for="batch-sku"><span>SKU</span><input id="batch-sku" name="sku" maxlength="200"></label>
+                <label class="field" for="batch-platform-product-id"><span>平台商品 ID</span><input id="batch-platform-product-id" name="platform_product_id" maxlength="200"></label>
               </div>
 
               <div id="batch-panel" class="tab-panel" role="tabpanel" hidden>
@@ -168,6 +183,7 @@
             <input type="hidden" name="source">
             <input type="hidden" name="source_range">
             <input type="hidden" name="platform">
+            <input type="hidden" name="sku">
             <input type="hidden" name="issue_category">
             <input type="hidden" name="responsibility">
             <div>
@@ -233,6 +249,9 @@
               <span>平台</span>
               <input id="platform-filter" name="platform" list="platform-presets" placeholder="全部平台">
             </label>
+            <label class="filter-field" for="store-filter"><span>店铺</span><input id="store-filter" name="store_name" placeholder="店铺名称包含"></label>
+            <label class="filter-field" for="sku-filter"><span>SKU</span><input id="sku-filter" name="sku" placeholder="精确 SKU"></label>
+            <label class="filter-field" for="platform-product-id-filter"><span>平台商品 ID</span><input id="platform-product-id-filter" name="platform_product_id" placeholder="精确商品 ID"></label>
             <label class="filter-field" for="issue-filter">
               <span>问题类型</span>
               <select id="issue-filter" name="issue_category">
@@ -282,14 +301,20 @@
                   class="record"
                   data-record-id="{{ record.id }}"
                   data-platform="{{ record.analysis.request.platform }}"
+                  data-store-name="{{ record.analysis.request.store_name|default('', true) }}"
+                  data-sku="{{ record.analysis.request.sku|default('', true) }}"
+                  data-platform-product-id="{{ record.analysis.request.platform_product_id|default('', true) }}"
                   data-issue-category="{{ record.analysis.attribution.issue_category }}"
                   data-responsibility="{{ record.analysis.attribution.primary_responsibility }}"
                   data-feedback-status="{{ 'accepted' if record.feedback and record.feedback.accepted else 'corrected' if record.feedback else 'unreviewed' }}"
-                  data-search-base-text="{{ record.id }} {{ record.analysis.request.platform }} {{ record.analysis.report }}"
-                  data-search-text="{{ record.id }} {{ record.analysis.request.platform }} {{ record.analysis.report }} {{ record.feedback.note if record.feedback and record.feedback.note else '' }}"
+                  data-search-base-text="{{ record.id }} {{ record.analysis.request.platform }} {{ record.analysis.request.store_name|default('', true) }} {{ record.analysis.request.sku|default('', true) }} {{ record.analysis.request.platform_product_id|default('', true) }} {{ record.analysis.report }}"
+                  data-search-text="{{ record.id }} {{ record.analysis.request.platform }} {{ record.analysis.request.store_name|default('', true) }} {{ record.analysis.request.sku|default('', true) }} {{ record.analysis.request.platform_product_id|default('', true) }} {{ record.analysis.report }} {{ record.feedback.note if record.feedback and record.feedback.note else '' }}"
                 >
                   <div class="record-meta" data-record-meta>
                     <strong>{{ record.analysis.request.platform }}</strong>
+                    {% if record.analysis.request.store_name|default('', true) %}<span>{{ record.analysis.request.store_name }}</span>{% endif %}
+                    {% if record.analysis.request.sku|default('', true) %}<span>SKU {{ record.analysis.request.sku }}</span>{% endif %}
+                    {% if record.analysis.request.platform_product_id|default('', true) %}<span>{{ record.analysis.request.platform_product_id }}</span>{% endif %}
                     <span>{{ record.analysis.attribution.issue_category }}</span>
                     <span>{{ record.analysis.attribution.primary_responsibility }}</span>
                     <span>{{ record.analysis.attribution.evidence_strength }}</span>
@@ -313,6 +338,9 @@
                         <dt>客户问题</dt>
                         <dd>{{ record.analysis.attribution.customer_problem or "暂无信息" }}</dd>
                       </div>
+                      {% if record.analysis.request.store_name|default('', true) %}<div><dt>店铺</dt><dd>{{ record.analysis.request.store_name }}</dd></div>{% endif %}
+                      {% if record.analysis.request.sku|default('', true) %}<div><dt>SKU</dt><dd>{{ record.analysis.request.sku }}</dd></div>{% endif %}
+                      {% if record.analysis.request.platform_product_id|default('', true) %}<div><dt>平台商品 ID</dt><dd>{{ record.analysis.request.platform_product_id }}</dd></div>{% endif %}
                       <div>
                         <dt>问题类型</dt>
                         <dd>{{ record.analysis.attribution.issue_category or "暂无信息" }}</dd>
