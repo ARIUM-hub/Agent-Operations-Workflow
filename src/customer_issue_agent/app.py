@@ -12,7 +12,11 @@ from pydantic import ValidationError
 from customer_issue_agent.attribution import analyze_attribution
 from customer_issue_agent.domain import AnalysisRequest, AnalysisResult
 from customer_issue_agent.export import build_records_csv
-from customer_issue_agent.ingestion import extract_batch_conversation_texts, extract_conversation_text
+from customer_issue_agent.ingestion import (
+    ExtractedConversation,
+    extract_batch_conversations,
+    extract_conversation,
+)
 from customer_issue_agent.parser import parse_conversation
 from customer_issue_agent.record_filters import filter_records
 from customer_issue_agent.report import build_report
@@ -52,40 +56,73 @@ def create_app(
     async def analyze_text(
         platform: str = Form(default="Other overseas platform"),
         conversation_text: str = Form(default=""),
+        store_name: str = Form(default=""),
+        sku: str = Form(default=""),
+        platform_product_id: str = Form(default=""),
     ) -> dict:
-        return _run_analysis(store, platform=platform, conversation_text=conversation_text)
+        request = _analysis_request(
+            platform=platform,
+            conversation_text=conversation_text,
+            store_name=store_name,
+            sku=sku,
+            platform_product_id=platform_product_id,
+        )
+        return _run_analysis(store, request)
 
     @app.post("/api/analyze-file")
     async def analyze_file(
         platform: str = Form(default="Other overseas platform"),
+        store_name: str = Form(default=""),
+        sku: str = Form(default=""),
+        platform_product_id: str = Form(default=""),
         file: UploadFile | None = None,
     ) -> dict:
         if file is None:
             raise HTTPException(status_code=422, detail="请上传客服会话文件")
         content = await file.read()
         try:
-            text = extract_conversation_text(file.filename or "conversation.txt", content)
+            extracted = extract_conversation(file.filename or "conversation.txt", content)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        return _run_analysis(store, platform=platform, conversation_text=text)
+        analysis_request = _request_from_extracted(
+            extracted,
+            platform=platform,
+            store_name=store_name,
+            sku=sku,
+            platform_product_id=platform_product_id,
+        )
+        return _run_analysis(store, analysis_request)
 
     @app.post("/api/analyze-batch-file")
     async def analyze_batch_file(
         platform: str = Form(default="Other overseas platform"),
+        store_name: str = Form(default=""),
+        sku: str = Form(default=""),
+        platform_product_id: str = Form(default=""),
         file: UploadFile | None = None,
     ) -> dict:
         if file is None:
             raise HTTPException(status_code=422, detail="请上传批量客服会话文件")
         content = await file.read()
         try:
-            conversations = extract_batch_conversation_texts(file.filename or "batch.txt", content)
+            extracted_items = extract_batch_conversations(
+                file.filename or "batch.txt",
+                content,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-        records = [
-            _run_analysis(store, platform=platform, conversation_text=conversation)
-            for conversation in conversations
+        requests = [
+            _request_from_extracted(
+                item,
+                platform=platform,
+                store_name=store_name,
+                sku=sku,
+                platform_product_id=platform_product_id,
+            )
+            for item in extracted_items
         ]
+        records = [_run_analysis(store, request) for request in requests]
         return {"batch_id": str(uuid4()), "count": len(records), "records": records}
 
     @app.post("/api/records/{record_id}/feedback")
@@ -270,13 +307,45 @@ def _raise_task_http_error(exc: Exception) -> None:
     raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-def _run_analysis(store: AnalysisStore, platform: str, conversation_text: str) -> dict:
+def _analysis_request(
+    *,
+    platform: str,
+    conversation_text: str,
+    store_name: str = "",
+    sku: str = "",
+    platform_product_id: str = "",
+) -> AnalysisRequest:
     try:
-        request = AnalysisRequest(platform=platform, conversation_text=conversation_text)
+        return AnalysisRequest(
+            platform=platform,
+            conversation_text=conversation_text,
+            store_name=store_name,
+            sku=sku,
+            platform_product_id=platform_product_id,
+        )
     except ValidationError as exc:
         detail = [{"loc": error["loc"], "msg": error["msg"]} for error in exc.errors()]
         raise HTTPException(status_code=422, detail=detail) from exc
 
+
+def _request_from_extracted(
+    extracted: ExtractedConversation,
+    *,
+    platform: str,
+    store_name: str,
+    sku: str,
+    platform_product_id: str,
+) -> AnalysisRequest:
+    return _analysis_request(
+        platform=platform,
+        conversation_text=extracted.conversation_text,
+        store_name=extracted.store_name or store_name,
+        sku=extracted.sku or sku,
+        platform_product_id=extracted.platform_product_id or platform_product_id,
+    )
+
+
+def _run_analysis(store: AnalysisStore, request: AnalysisRequest) -> dict:
     parsed = parse_conversation(request.platform, request.conversation_text)
     attribution = analyze_attribution(parsed)
     result = AnalysisResult(

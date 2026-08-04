@@ -54,6 +54,93 @@ def test_analyze_rejects_empty_text(tmp_path):
     assert response.status_code == 422
 
 
+def test_analyze_endpoint_saves_trimmed_product_metadata(tmp_path):
+    client = TestClient(create_app(storage_path=tmp_path / "analyses.jsonl"))
+
+    response = client.post(
+        "/api/analyze",
+        data={
+            "platform": "Amazon",
+            "conversation_text": "Customer: it is broken",
+            "store_name": "  US Store  ",
+            "sku": "  SKU-01  ",
+            "platform_product_id": "  B0ABC  ",
+        },
+    )
+
+    assert response.status_code == 200
+    request = response.json()["analysis"]["request"]
+    assert request["store_name"] == "US Store"
+    assert request["sku"] == "SKU-01"
+    assert request["platform_product_id"] == "B0ABC"
+
+
+def test_analyze_file_uses_file_metadata_before_form_defaults(tmp_path):
+    client = TestClient(create_app(storage_path=tmp_path / "analyses.jsonl"))
+    content = b"speaker,message,sku,asin\nCustomer,it is broken,FILE-SKU,B0FILE\n"
+
+    response = client.post(
+        "/api/analyze-file",
+        data={
+            "platform": "Amazon",
+            "sku": "FORM-SKU",
+            "platform_product_id": "FORM-ID",
+        },
+        files={"file": ("conversation.csv", content, "text/csv")},
+    )
+
+    assert response.status_code == 200
+    request = response.json()["analysis"]["request"]
+    assert request["sku"] == "FILE-SKU"
+    assert request["platform_product_id"] == "B0FILE"
+
+
+def test_batch_endpoint_uses_row_product_metadata_and_form_fallback(tmp_path):
+    storage_path = tmp_path / "analyses.jsonl"
+    client = TestClient(create_app(storage_path=storage_path))
+    content = (
+        "conversation,sku,store\n"
+        "Customer: first broken,ROW-SKU,Row Store\n"
+        "Customer: second broken,,\n"
+    ).encode("utf-8")
+
+    response = client.post(
+        "/api/analyze-batch-file",
+        data={
+            "platform": "Amazon",
+            "sku": "DEFAULT-SKU",
+            "store_name": "Default Store",
+        },
+        files={"file": ("batch.csv", content, "text/csv")},
+    )
+
+    assert response.status_code == 200
+    requests = [item["analysis"]["request"] for item in response.json()["records"]]
+    assert requests[0]["sku"] == "ROW-SKU"
+    assert requests[0]["store_name"] == "Row Store"
+    assert requests[1]["sku"] == "DEFAULT-SKU"
+    assert requests[1]["store_name"] == "Default Store"
+
+
+def test_batch_endpoint_validates_all_product_fields_before_writing(tmp_path):
+    storage_path = tmp_path / "analyses.jsonl"
+    client = TestClient(create_app(storage_path=storage_path))
+    content = (
+        "conversation,sku\n"
+        "Customer: valid,SKU-01\n"
+        f"Customer: invalid,{'x' * 201}\n"
+    ).encode("utf-8")
+
+    response = client.post(
+        "/api/analyze-batch-file",
+        data={"platform": "Amazon"},
+        files={"file": ("batch.csv", content, "text/csv")},
+    )
+
+    assert response.status_code == 422
+    assert not storage_path.exists()
+
+
 def test_index_renders_workbench(tmp_path):
     app = create_app(storage_path=tmp_path / "analyses.jsonl")
     client = TestClient(app)

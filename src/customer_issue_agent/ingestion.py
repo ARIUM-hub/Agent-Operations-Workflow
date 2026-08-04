@@ -86,22 +86,6 @@ def extract_batch_conversations(
     return cleaned
 
 
-# Task 3 会在应用层切换完成后移除这两个兼容入口。
-def extract_conversation_text(filename: str, content: bytes) -> str:
-    return extract_conversation(filename, content).conversation_text
-
-
-def extract_batch_conversation_texts(
-    filename: str,
-    content: bytes,
-    limit: int = BATCH_LIMIT,
-) -> list[str]:
-    return [
-        item.conversation_text
-        for item in extract_batch_conversations(filename, content, limit)
-    ]
-
-
 def _decode_text(content: bytes) -> str:
     for encoding in ("utf-8-sig", "utf-8", "gb18030"):
         try:
