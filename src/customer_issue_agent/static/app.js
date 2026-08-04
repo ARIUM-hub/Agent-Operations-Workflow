@@ -1978,6 +1978,7 @@ function bindTaskActions(root) {
       drilldownTaskRecords({
         source_range: card.dataset.taskSourceRange,
         platform: card.dataset.taskPlatform,
+        sku: card.dataset.taskSku,
         issue_category: card.dataset.taskIssueCategory,
         responsibility: card.dataset.taskResponsibility,
       });
