@@ -607,9 +607,49 @@ function renderIssueTrends(trends) {
       <h3>变化最大的 Top 5 问题簇</h3>
       ${issueTrendRows(trends.clusters || [])}
     </article>
+    <article class="summary-card trend-card sku-trend-card">
+      <h3>变化最大的 Top 5 SKU 问题簇</h3>
+      ${skuTrendRows(trends.sku_clusters || [])}
+    </article>
   `;
   bindIssueTrendFilters(container);
+  bindSkuInsightFilters(container);
   bindTaskCreateButtons(container);
+}
+
+function skuTrendRows(items = []) {
+  const visible = items.slice(0, 5);
+  if (!visible.length) {
+    return '<p class="trend-empty">当前周期暂无 SKU 变化。</p>';
+  }
+  return `<ul class="trend-list sku-trend-list">${visible.map(skuTrendRow).join("")}</ul>`;
+}
+
+function skuTrendRow(item) {
+  const platform = String(item.platform || "").trim();
+  const sku = String(item.sku || "").trim();
+  const issueCategory = String(item.issue_category || "").trim();
+  const responsibility = String(item.responsibility || "").trim();
+  const delta = Number(item.delta) || 0;
+  const alert = item.significant_increase ? '<span class="trend-alert">明显上升</span>' : "";
+  return `
+    <li class="trend-row issue-cluster-actions">
+      <button
+        class="trend-row-button"
+        type="button"
+        data-sku-trend-filter
+        data-platform="${escapeHtml(platform)}"
+        data-sku="${escapeHtml(sku)}"
+        data-issue-category="${escapeHtml(issueCategory)}"
+        data-responsibility="${escapeHtml(responsibility)}"
+        data-range="7d"
+      >
+        <span class="trend-cluster-label"><strong>${escapeHtml(sku)}</strong><small>${escapeHtml(platform)} / ${escapeHtml(labelFor("issue_category", issueCategory))}</small></span>
+        <span class="trend-counts"><span>本期 ${escapeHtml(item.current_count || 0)}</span><span>上期 ${escapeHtml(item.previous_count || 0)}</span><span class="trend-change">${escapeHtml(trendChangeLabel(delta))}</span>${alert}</span>
+      </button>
+      <button class="secondary-action task-create-trigger" type="button" data-task-create data-task-source="trend" data-task-platform="${escapeHtml(platform)}" data-task-sku="${escapeHtml(sku)}" data-task-issue-category="${escapeHtml(issueCategory)}" data-task-responsibility="${escapeHtml(responsibility)}" data-task-significant-increase="${item.significant_increase === true}">创建任务</button>
+    </li>
+  `;
 }
 
 function issueTrendRows(items = []) {
@@ -738,10 +778,83 @@ function renderRecordsSummary(summary) {
       ${summaryDistribution("证据强度", "evidence", summary.evidence_strengths)}
       ${summaryDistribution("复核状态", "feedback", summary.feedback_statuses)}
     </div>
+    <section class="product-insights" aria-label="商品维度">
+      <h3>商品维度</h3>
+      <div class="summary-metrics product-coverage">
+        ${summaryMetric("有 SKU", summary.product_coverage?.with_sku ?? 0)}
+        ${summaryMetric("未填写 SKU", summary.product_coverage?.missing_sku ?? 0)}
+      </div>
+      ${skuDistribution(summary.top_skus || [])}
+      ${skuIssueClusters(summary.top_sku_issue_clusters || [])}
+    </section>
   `;
   bindSummaryPlatformFilters(container);
   bindSummaryIssueClusterFilters(container);
+  bindSkuInsightFilters(container);
   bindTaskCreateButtons(container);
+}
+
+function skuDistribution(items = []) {
+  const rows = items.slice(0, 5).map((item) => `
+    <li>
+      <button type="button" class="summary-filter-link" data-top-sku-filter="${escapeHtml(item.sku || "")}">${escapeHtml(item.sku || "")}</button>
+      <span>${escapeHtml(item.count || 0)} 条 / ${escapeHtml(item.platform_count || 0)} 个平台</span>
+    </li>
+  `).join("") || '<li><span>暂无 SKU 数据</span><strong>0</strong></li>';
+  return `<article class="summary-card distribution-card"><h4>Top SKU</h4><ul class="distribution-list">${rows}</ul></article>`;
+}
+
+function skuIssueClusters(items = []) {
+  const rows = items.slice(0, 5).map((item) => `
+    <li class="issue-cluster-actions">
+      <button type="button" class="issue-cluster-filter" data-sku-cluster-filter data-platform="${escapeHtml(item.platform || "")}" data-sku="${escapeHtml(item.sku || "")}" data-issue-category="${escapeHtml(item.issue_category || "")}" data-responsibility="${escapeHtml(item.responsibility || "")}">
+        <span class="issue-cluster-label"><strong>${escapeHtml(item.sku || "")}</strong><small>${escapeHtml(item.platform || "")} / ${escapeHtml(labelFor("issue_category", item.issue_category))}</small></span><strong>${escapeHtml(item.count || 0)}</strong>
+      </button>
+      <button class="secondary-action task-create-trigger" type="button" data-task-create data-task-source="summary" data-task-platform="${escapeHtml(item.platform || "")}" data-task-sku="${escapeHtml(item.sku || "")}" data-task-issue-category="${escapeHtml(item.issue_category || "")}" data-task-responsibility="${escapeHtml(item.responsibility || "")}" data-task-significant-increase="false">创建任务</button>
+    </li>
+  `).join("") || '<li><span>暂无 SKU 问题簇</span><strong>0</strong></li>';
+  return `<article class="summary-card distribution-card sku-cluster-card"><h4>SKU 高频问题</h4><ul class="distribution-list">${rows}</ul></article>`;
+}
+
+function bindSkuInsightFilters(root = document) {
+  root.querySelectorAll("[data-top-sku-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const skuFilter = document.getElementById("sku-filter");
+      if (!skuFilter) return;
+      skuFilter.value = button.dataset.topSkuFilter || "";
+      refreshRecordFilterViews();
+      scrollToRecentRecords();
+    });
+  });
+  root.querySelectorAll("[data-sku-cluster-filter], [data-sku-trend-filter]").forEach((button) => {
+    button.addEventListener("click", () => applySkuClusterFilter({
+      platform: button.dataset.platform || "",
+      sku: button.dataset.sku || "",
+      issueCategory: button.dataset.issueCategory || "",
+      responsibility: button.dataset.responsibility || "",
+      range: button.dataset.range || "",
+    }));
+  });
+}
+
+function applySkuClusterFilter({ platform, sku, issueCategory, responsibility, range = "" }) {
+  const platformFilter = document.getElementById("platform-filter");
+  const skuFilter = document.getElementById("sku-filter");
+  const issueFilter = document.getElementById("issue-filter");
+  const responsibilityFilter = document.getElementById("responsibility-filter");
+  if (!platformFilter || !skuFilter || !issueFilter || !responsibilityFilter || !sku) return;
+  platformFilter.value = platform;
+  platformFilter.dataset.matchMode = "exact";
+  skuFilter.value = sku;
+  issueFilter.value = issueCategory;
+  responsibilityFilter.value = responsibility;
+  if (range) {
+    const summaryRange = document.getElementById("summary-range");
+    if (summaryRange) summaryRange.value = range;
+  }
+  refreshRecordFilterViews();
+  if (range) loadRecordsSummary();
+  scrollToRecentRecords();
 }
 
 function summaryIssueClusters(items = []) {
@@ -1466,6 +1579,7 @@ function taskCardHtml(task, now = new Date()) {
       data-task-id="${escapeHtml(task.id)}"
       data-task-source-range="${escapeHtml(task.source_range)}"
       data-task-platform="${escapeHtml(task.platform)}"
+      data-task-sku="${escapeHtml(task.sku || "")}"
       data-task-issue-category="${escapeHtml(task.issue_category)}"
       data-task-responsibility="${escapeHtml(task.responsibility)}"
     >
@@ -1475,6 +1589,7 @@ function taskCardHtml(task, now = new Date()) {
       </div>
       <div class="task-card-meta">
         <span class="task-source">${source}</span>
+        ${task.sku ? `<span class="task-sku">SKU ${escapeHtml(task.sku)}</span>` : ""}
         <span class="task-priority">${escapeHtml(labelFor("task_priority", task.priority))}优先级</span>
         ${overdue ? `<span class="task-overdue">已逾期</span>` : ""}
       </div>
@@ -1601,6 +1716,7 @@ function bindTaskCreateButtons(root = document) {
     button.addEventListener("click", () => openTaskCreateForm(createTaskDraft({
       source: button.dataset.taskSource || "summary",
       platform: button.dataset.taskPlatform || "",
+      sku: button.dataset.taskSku || "",
       issueCategory: button.dataset.taskIssueCategory || "",
       responsibility: button.dataset.taskResponsibility || "",
       significantIncrease: button.dataset.taskSignificantIncrease === "true",
@@ -1611,6 +1727,7 @@ function bindTaskCreateButtons(root = document) {
 function createTaskDraft({
   source,
   platform,
+  sku = "",
   issueCategory,
   responsibility,
   significantIncrease,
@@ -1623,6 +1740,7 @@ function createTaskDraft({
     source,
     sourceRange,
     platform,
+    sku,
     issueCategory,
     responsibility,
     significantIncrease,
@@ -1650,13 +1768,15 @@ function openTaskCreateForm(draft) {
   form.elements.source.value = draft.source;
   form.elements.source_range.value = draft.sourceRange;
   form.elements.platform.value = draft.platform;
+  if (form.elements.sku) form.elements.sku.value = draft.sku || "";
   form.elements.issue_category.value = draft.issueCategory;
   form.elements.responsibility.value = draft.responsibility;
   form.elements.team.value = draft.team;
   form.elements.priority.value = draft.priority;
   form.elements.due_date.value = draft.dueDate;
+  const titlePrefix = draft.sku ? `${draft.platform} · ${draft.sku}` : draft.platform;
   form.querySelector("[data-task-create-title]").textContent = (
-    `${draft.platform} · ${labelFor("issue_category", draft.issueCategory)} · `
+    `${titlePrefix} · ${labelFor("issue_category", draft.issueCategory)} · `
     + labelFor("responsibility", draft.responsibility)
   );
   form.querySelector("[data-task-create-source]").textContent = draft.source === "trend"
@@ -1987,12 +2107,14 @@ function drilldownTaskRecords(task) {
   const platform = document.getElementById("platform-filter");
   const issue = document.getElementById("issue-filter");
   const responsibility = document.getElementById("responsibility-filter");
+  const sku = document.getElementById("sku-filter");
   if (!range || !platform || !issue || !responsibility) {
     return;
   }
   range.value = task.source_range || "all";
   platform.value = task.platform || "";
   platform.dataset.matchMode = "exact";
+  if (sku) sku.value = task.sku || "";
   issue.value = task.issue_category || "";
   responsibility.value = task.responsibility || "";
   refreshRecordFilterViews();

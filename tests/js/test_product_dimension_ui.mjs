@@ -162,3 +162,87 @@ test("商品筛选进入导出和数量预览参数", () => {
   assert.equal(params.get("sku"), "SKU-1");
   assert.equal(params.get("platform_product_id"), "B001");
 });
+
+test("商品概览展示覆盖率 Top SKU 和前五个 SKU 问题簇", () => {
+  const { context, elements } = loadApp();
+  context.renderRecordsSummary({
+    total_records: 5,
+    reviewed_records: 0,
+    corrected_records: 0,
+    product_coverage: { with_sku: 4, missing_sku: 1 },
+    top_skus: [{ sku: "SKU-01", count: 3, platform_count: 2, platforms: ["Amazon", "TikTok Shop"] }],
+    top_sku_issue_clusters: Array.from({ length: 6 }, (_, index) => ({
+      platform: "Amazon",
+      sku: `SKU-0${index + 1}`,
+      issue_category: "function_use",
+      responsibility: "customer_service_training",
+      count: 6 - index,
+    })),
+  });
+
+  const html = elements.get("summary-content").innerHTML;
+  assert.match(html, /未填写 SKU/);
+  assert.match(html, /SKU-01/);
+  assert.equal((html.match(/data-sku-cluster-filter/g) || []).length, 5);
+});
+
+test("SKU 趋势展示变化并限制前五项", () => {
+  const { context, elements } = loadApp();
+  context.renderIssueTrends({
+    period: "7d",
+    current_period: { total_records: 6 },
+    previous_period: { total_records: 2 },
+    total_delta: 4,
+    clusters: [],
+    sku_clusters: Array.from({ length: 6 }, (_, index) => ({
+      platform: "Amazon",
+      sku: `SKU-0${index + 1}`,
+      issue_category: "function_use",
+      responsibility: "customer_service_training",
+      current_count: 3,
+      previous_count: 1,
+      delta: 2,
+      significant_increase: index === 0,
+    })),
+  });
+
+  const html = elements.get("trend-content").innerHTML;
+  assert.match(html, /SKU-01/);
+  assert.match(html, /明显上升/);
+  assert.equal((html.match(/data-sku-trend-filter/g) || []).length, 5);
+});
+
+test("SKU 问题簇下钻应用精确筛选并保留关键词复核", () => {
+  const { context, elements } = loadApp();
+  elements.get("record-search").value = "broken";
+  elements.get("feedback-filter").value = "unreviewed";
+
+  context.applySkuClusterFilter({
+    platform: "Amazon",
+    sku: "SKU-01",
+    issueCategory: "function_use",
+    responsibility: "customer_service_training",
+    range: "7d",
+  });
+
+  assert.equal(elements.get("platform-filter").value, "Amazon");
+  assert.equal(elements.get("sku-filter").value, "SKU-01");
+  assert.equal(elements.get("summary-range").value, "7d");
+  assert.equal(elements.get("record-search").value, "broken");
+  assert.equal(elements.get("feedback-filter").value, "unreviewed");
+});
+
+test("SKU 趋势任务草稿携带 SKU 和高优先级", () => {
+  const { context } = loadApp();
+  const draft = context.createTaskDraft({
+    source: "trend",
+    platform: "Amazon",
+    sku: "SKU-01",
+    issueCategory: "function_use",
+    responsibility: "customer_service_training",
+    significantIncrease: true,
+  });
+
+  assert.equal(draft.sku, "SKU-01");
+  assert.equal(draft.priority, "high");
+});
