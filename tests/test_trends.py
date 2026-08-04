@@ -10,13 +10,14 @@ def _record(
     created_at: datetime | str | None,
     *,
     platform: object = "Amazon",
+    sku: object = "",
     issue_category: object = "function_use",
     responsibility: object = "customer_service_training",
 ) -> dict:
     value = created_at.isoformat() if isinstance(created_at, datetime) else created_at
     record = {
         "analysis": {
-            "request": {"platform": platform},
+            "request": {"platform": platform, "sku": sku},
             "attribution": {
                 "issue_category": issue_category,
                 "primary_responsibility": responsibility,
@@ -142,6 +143,7 @@ def test_build_issue_trends_handles_empty_unknown_and_period_fallback():
         },
         "total_delta": 0,
         "clusters": [],
+        "sku_clusters": [],
     }
 
     unknown = build_issue_trends(
@@ -182,3 +184,83 @@ def test_build_issue_trends_skips_timezone_conversion_overflow():
     assert result["current_period"]["total_records"] == 0
     assert result["previous_period"]["total_records"] == 0
     assert result["clusters"] == []
+
+
+def test_issue_trends_include_sku_clusters_with_existing_thresholds():
+    now = datetime(2026, 8, 4, 12, tzinfo=UTC)
+    records = [
+        _record(
+            now - timedelta(days=index + 1),
+            platform="Amazon",
+            sku="SKU-01" if index != 1 else "sku-01",
+            issue_category="function_use",
+            responsibility="customer_service_training",
+        )
+        for index in range(3)
+    ]
+    records.extend(
+        [
+            _record(
+                now - timedelta(days=8),
+                platform="Amazon",
+                sku="SKU-01",
+                issue_category="function_use",
+                responsibility="customer_service_training",
+            ),
+            _record(
+                now - timedelta(days=1),
+                platform="Amazon",
+                sku="",
+                issue_category="function_use",
+                responsibility="customer_service_training",
+            ),
+        ]
+    )
+
+    trends = build_issue_trends(records, now=now)
+
+    assert trends["sku_clusters"] == [
+        {
+            "platform": "Amazon",
+            "sku": "SKU-01",
+            "issue_category": "function_use",
+            "responsibility": "customer_service_training",
+            "current_count": 3,
+            "previous_count": 1,
+            "delta": 2,
+            "significant_increase": True,
+        }
+    ]
+    assert trends["current_period"]["total_records"] == 4
+
+
+def test_sku_trends_skip_future_invalid_dates_and_sort_stably():
+    now = datetime(2026, 8, 4, 12, tzinfo=UTC)
+    records = [
+        _record(
+            now - timedelta(days=1),
+            platform="Amazon",
+            sku=sku,
+            issue_category="function_use",
+            responsibility="customer_service_training",
+        )
+        for sku in ("SKU-06", "SKU-02", "SKU-05", "SKU-01", "SKU-04", "SKU-03")
+    ]
+    records.extend(
+        [
+            _record(now + timedelta(seconds=1), platform="Amazon", sku="FUTURE"),
+            _record("not-a-date", platform="Amazon", sku="INVALID"),
+        ]
+    )
+
+    sku_clusters = build_issue_trends(records, now=now)["sku_clusters"]
+
+    assert all(item["sku"] not in {"FUTURE", "INVALID"} for item in sku_clusters)
+    assert [item["sku"] for item in sku_clusters] == [
+        "SKU-01",
+        "SKU-02",
+        "SKU-03",
+        "SKU-04",
+        "SKU-05",
+        "SKU-06",
+    ]
