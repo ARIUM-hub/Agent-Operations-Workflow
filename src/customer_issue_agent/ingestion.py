@@ -303,13 +303,25 @@ def _extract_batch_csv_rows(content: bytes) -> list[ExtractedConversation]:
 
 def _extract_batch_xlsx_rows(content: bytes) -> list[ExtractedConversation]:
     rows = _xlsx_mapping_rows(content)
+    conversation_keys = {key.casefold() for key in BATCH_TEXT_KEYS}
+    has_conversation_column = bool(rows) and any(
+        str(key).strip().casefold() in conversation_keys for key in rows[0]
+    )
     return [
         ExtractedConversation(
-            conversation_text=_conversation_value(row),
+            conversation_text=(
+                _conversation_value(row)
+                if has_conversation_column
+                else " ".join(
+                    str(value).strip()
+                    for value in row.values()
+                    if value is not None and str(value).strip()
+                )
+            ),
             **_metadata_from_mapping(row),
         )
         for row in rows
-        if _conversation_value(row)
+        if not has_conversation_column or _conversation_value(row)
     ]
 
 

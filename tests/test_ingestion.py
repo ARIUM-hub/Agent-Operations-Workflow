@@ -84,6 +84,23 @@ def test_batch_xlsx_converts_numeric_product_ids_without_dot_zero():
     assert extracted[0].platform_product_id == "12345"
 
 
+def test_batch_xlsx_without_conversation_column_preserves_row_fallback():
+    content = _workbook_bytes(
+        [
+            ["channel", "details"],
+            ["Amazon", "Customer: It will not connect"],
+            ["Shopee", "Customer: Missing cable"],
+        ]
+    )
+
+    extracted = extract_batch_conversations("batch.xlsx", content)
+
+    assert [item.conversation_text for item in extracted] == [
+        "Amazon Customer: It will not connect",
+        "Shopee Customer: Missing cable",
+    ]
+
+
 @pytest.mark.parametrize("invalid", [True, date(2026, 8, 4)])
 def test_batch_xlsx_rejects_boolean_and_date_product_ids(invalid):
     content = _workbook_bytes(
