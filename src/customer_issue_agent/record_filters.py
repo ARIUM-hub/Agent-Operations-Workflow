@@ -9,6 +9,9 @@ def filter_records(
     *,
     platform: str = "",
     platform_match: str = "",
+    store_name: str = "",
+    sku: str = "",
+    platform_product_id: str = "",
     issue_category: str = "",
     responsibility: str = "",
     feedback_status: str = "",
@@ -20,6 +23,9 @@ def filter_records(
     filters = {
         "platform": platform_filter,
         "platform_match": "exact" if platform_filter and _clean(platform_match) == "exact" else "",
+        "store_name": _clean(store_name),
+        "sku": _clean(sku),
+        "platform_product_id": _clean(platform_product_id),
         "issue_category": _clean(issue_category),
         "responsibility": _clean(responsibility),
         "feedback_status": _clean(feedback_status),
@@ -46,6 +52,15 @@ def _matches(record: dict[str, Any], filters: dict[str, str], now: datetime) -> 
                 return False
         elif filters["platform"] not in record_platform:
             return False
+    record_store = _clean(request.get("store_name"))
+    record_sku = _clean(request.get("sku"))
+    record_product_id = _clean(request.get("platform_product_id"))
+    if filters["store_name"] and filters["store_name"] not in record_store:
+        return False
+    if filters["sku"] and filters["sku"] != record_sku:
+        return False
+    if filters["platform_product_id"] and filters["platform_product_id"] != record_product_id:
+        return False
     if filters["issue_category"] and filters["issue_category"] != _clean(attribution.get("issue_category")):
         return False
     if filters["responsibility"] and filters["responsibility"] != _clean(attribution.get("primary_responsibility")):
@@ -96,6 +111,9 @@ def _search_text(record: dict[str, Any]) -> str:
     values = [
         record.get("id"),
         request.get("platform"),
+        request.get("store_name"),
+        request.get("sku"),
+        request.get("platform_product_id"),
         analysis.get("report"),
         attribution.get("customer_problem"),
         attribution.get("issue_category"),

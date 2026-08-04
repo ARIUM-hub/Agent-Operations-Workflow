@@ -770,12 +770,27 @@ def test_static_app_js_contains_filtered_export_hooks(tmp_path):
     assert "latestExportCountRequestId" in script
 
 
-def _stored_record(record_id: str, *, platform: str, created_at: datetime, issue_category: str = "function_use") -> dict:
+def _stored_record(
+    record_id: str,
+    *,
+    platform: str,
+    created_at: datetime,
+    issue_category: str = "function_use",
+    store_name: str = "",
+    sku: str = "",
+    platform_product_id: str = "",
+) -> dict:
     return {
         "id": record_id,
         "created_at": created_at.isoformat(),
         "analysis": {
-            "request": {"platform": platform, "conversation_text": "Customer: not working"},
+            "request": {
+                "platform": platform,
+                "conversation_text": "Customer: not working",
+                "store_name": store_name,
+                "sku": sku,
+                "platform_product_id": platform_product_id,
+            },
             "attribution": {
                 "customer_problem": f"{platform} 客户反馈无法使用",
                 "issue_category": issue_category,
@@ -796,6 +811,47 @@ def _write_jsonl_records(path, records):
     with path.open("w", encoding="utf-8", newline="\n") as handle:
         for record in records:
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def test_product_filters_match_export_and_count_endpoints(tmp_path):
+    storage_path = tmp_path / "analyses.jsonl"
+    now = datetime.now(UTC)
+    _write_jsonl_records(
+        storage_path,
+        [
+            _stored_record(
+                "one",
+                platform="Amazon",
+                created_at=now,
+                store_name="US Flagship",
+                sku="SKU-1",
+                platform_product_id="B001",
+            ),
+            _stored_record(
+                "ten",
+                platform="Amazon",
+                created_at=now,
+                store_name="US Flagship",
+                sku="SKU-10",
+                platform_product_id="B0010",
+            ),
+        ],
+    )
+    client = TestClient(create_app(storage_path=storage_path))
+    params = {
+        "store_name": "flag",
+        "sku": "sku-1",
+        "platform_product_id": "b001",
+    }
+
+    csv_response = client.get("/api/records/export.csv", params=params)
+    count_response = client.get("/api/records/export-count", params=params)
+
+    assert csv_response.status_code == 200
+    assert count_response.json() == {"count": 1}
+    decoded = csv_response.content.decode("utf-8-sig")
+    assert "SKU-1" in decoded
+    assert "SKU-10" not in decoded
 
 
 def _completed_task_event(now: datetime) -> dict:

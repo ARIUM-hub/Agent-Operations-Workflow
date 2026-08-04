@@ -7,6 +7,9 @@ def _record(
     record_id: str,
     *,
     platform: str = "Amazon",
+    store_name: str = "",
+    sku: str = "",
+    platform_product_id: str = "",
     issue_category: str = "function_use",
     responsibility: str = "customer_service_training",
     evidence_strength: str = "likely",
@@ -16,7 +19,12 @@ def _record(
     return {
         "id": record_id,
         "analysis": {
-            "request": {"platform": platform},
+            "request": {
+                "platform": platform,
+                "store_name": store_name,
+                "sku": sku,
+                "platform_product_id": platform_product_id,
+            },
             "attribution": {
                 "customer_problem": report,
                 "issue_category": issue_category,
@@ -151,3 +159,41 @@ def test_filter_records_active_range_excludes_missing_or_invalid_created_at():
     ]
 
     assert filter_records(records, range="7d", now=now) == []
+
+
+def test_product_filters_use_store_contains_and_exact_identifiers():
+    records = [
+        _record(
+            "one",
+            store_name="US Flagship",
+            sku="SKU-1",
+            platform_product_id="B001",
+        ),
+        _record(
+            "two",
+            store_name="EU Outlet",
+            sku="SKU-10",
+            platform_product_id="B0010",
+        ),
+        _record("legacy"),
+    ]
+
+    assert [item["id"] for item in filter_records(records, store_name="flag")] == ["one"]
+    assert [item["id"] for item in filter_records(records, sku="sku-1")] == ["one"]
+    assert [
+        item["id"] for item in filter_records(records, platform_product_id="b001")
+    ] == ["one"]
+    assert filter_records(records, sku="SKU") == []
+
+
+def test_product_metadata_is_in_keyword_search():
+    record = _record(
+        "one",
+        store_name="US Flagship",
+        sku="SKU-1",
+        platform_product_id="B001",
+    )
+
+    assert filter_records([record], q="flagship") == [record]
+    assert filter_records([record], q="sku-1") == [record]
+    assert filter_records([record], q="b001") == [record]
