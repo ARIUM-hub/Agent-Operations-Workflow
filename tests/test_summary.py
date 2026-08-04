@@ -4,6 +4,7 @@ from customer_issue_agent.summary import build_records_summary
 def _record(
     *,
     platform: object = "Amazon",
+    sku: object = "",
     issue_category: object = "function_use",
     responsibility: object = "customer_service_training",
     evidence: object = "likely",
@@ -11,7 +12,7 @@ def _record(
 ) -> dict:
     return {
         "analysis": {
-            "request": {"platform": platform},
+            "request": {"platform": platform, "sku": sku},
             "attribution": {
                 "issue_category": issue_category,
                 "primary_responsibility": responsibility,
@@ -133,6 +134,9 @@ def test_build_records_summary_handles_empty_and_unknown_values():
         "evidence_strengths": [],
         "feedback_statuses": [],
         "top_issue_clusters": [],
+        "product_coverage": {"with_sku": 0, "missing_sku": 0},
+        "top_skus": [],
+        "top_sku_issue_clusters": [],
     }
 
     summary = build_records_summary(
@@ -155,3 +159,60 @@ def test_build_records_summary_handles_empty_and_unknown_values():
             "count": 2,
         }
     ]
+    assert summary["product_coverage"] == {"with_sku": 0, "missing_sku": 2}
+    assert summary["top_skus"] == []
+    assert summary["top_sku_issue_clusters"] == []
+
+
+def test_summary_reports_sku_coverage_and_cross_platform_top_skus():
+    records = [
+        _record(platform="Amazon", sku="SKU-01"),
+        _record(platform="TikTok Shop", sku="sku-01"),
+        _record(platform="Amazon", sku="SKU-02"),
+        _record(platform="Amazon"),
+    ]
+
+    summary = build_records_summary(records)
+
+    assert summary["product_coverage"] == {"with_sku": 3, "missing_sku": 1}
+    assert summary["top_skus"][0] == {
+        "sku": "SKU-01",
+        "count": 2,
+        "platform_count": 2,
+        "platforms": ["Amazon", "TikTok Shop"],
+    }
+    assert summary["top_skus"][1]["sku"] == "SKU-02"
+
+
+def test_summary_ranks_sku_issue_clusters_by_platform_and_sku():
+    records = [
+        _record(
+            platform="Amazon",
+            sku="SKU-01",
+            issue_category="function_use",
+            responsibility="customer_service_training",
+        )
+        for _ in range(3)
+    ]
+    records.extend(
+        [
+            _record(
+                platform="TikTok Shop",
+                sku="sku-01",
+                issue_category="product_fault",
+                responsibility="supply_chain_quality",
+            ),
+            _record(platform="Amazon"),
+        ]
+    )
+
+    clusters = build_records_summary(records)["top_sku_issue_clusters"]
+
+    assert clusters[0] == {
+        "platform": "Amazon",
+        "sku": "SKU-01",
+        "issue_category": "function_use",
+        "responsibility": "customer_service_training",
+        "count": 3,
+    }
+    assert all(item["sku"] != "unknown" for item in clusters)
