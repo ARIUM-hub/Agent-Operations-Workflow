@@ -854,6 +854,48 @@ def test_product_filters_match_export_and_count_endpoints(tmp_path):
     assert "SKU-10" not in decoded
 
 
+def test_task_api_creates_sku_scoped_task_and_rejects_overlong_sku(tmp_path):
+    storage_path = tmp_path / "analyses.jsonl"
+    task_path = tmp_path / "tasks.jsonl"
+    now = datetime.now(UTC)
+    _write_jsonl_records(
+        storage_path,
+        [
+            _stored_record(
+                "sku-one",
+                platform="Amazon",
+                created_at=now,
+                sku="SKU-01",
+            ),
+            _stored_record(
+                "sku-ten",
+                platform="Amazon",
+                created_at=now,
+                sku="SKU-010",
+            ),
+        ],
+    )
+    client = TestClient(
+        create_app(storage_path=storage_path, task_storage_path=task_path)
+    )
+    form = {
+        "source": "summary",
+        "source_range": "all",
+        "platform": "Amazon",
+        "sku": "SKU-01",
+        "issue_category": "function_use",
+        "responsibility": "customer_service_training",
+    }
+
+    created = client.post("/api/tasks", data=form)
+    invalid = client.post("/api/tasks", data={**form, "sku": "x" * 201})
+
+    assert created.status_code == 201
+    assert created.json()["task"]["sku"] == "SKU-01"
+    assert created.json()["task"]["record_ids"] == ["sku-one"]
+    assert invalid.status_code == 422
+
+
 def _completed_task_event(now: datetime) -> dict:
     return {
         "id": "task-review",

@@ -60,6 +60,7 @@ class TaskService:
             raise TaskValidationError("unknown 平台不能创建任务")
         issue_category = _issue_category(payload.get("issue_category"))
         responsibility = _responsibility(payload.get("responsibility"), "责任方")
+        sku = _optional_bounded_text(payload.get("sku"), "SKU", max_length=200)
         source_range = (
             "7d"
             if source == "trend"
@@ -74,7 +75,7 @@ class TaskService:
         due_date_override = _optional_due_date(payload.get("due_date"))
 
         tasks = self.task_store.list_tasks()
-        key = _cluster_key(platform, issue_category, responsibility)
+        key = _cluster_key(platform, issue_category, responsibility, sku)
         for task in tasks:
             if task.get("status") in OPEN_STATUSES and _task_key(task) == key:
                 return task, False
@@ -87,12 +88,18 @@ class TaskService:
             responsibility=responsibility,
             source_range=source_range,
             now=current,
+            sku=sku,
         )
         if not record_ids:
             raise TaskValidationError("当前范围没有匹配记录，无法创建任务")
 
         significant_increase = source == "trend" and _significant_increase(
-            records, platform, issue_category, responsibility, current
+            records,
+            platform,
+            issue_category,
+            responsibility,
+            current,
+            sku=sku,
         )
         team = team_override or responsibility
         suggested_priority = "high" if significant_increase else "medium"
@@ -101,17 +108,24 @@ class TaskService:
             local_today + timedelta(days=PRIORITY_DAYS[priority])
         ).isoformat()
         timestamp = current.isoformat()
+        title_parts = [platform]
+        if sku:
+            title_parts.append(sku)
+        title_parts.extend(
+            [
+                IssueCategory(issue_category).label,
+                Responsibility(responsibility).label,
+            ]
+        )
         task = {
             "id": f"task-{uuid4()}",
-            "title": (
-                f"{platform} · {IssueCategory(issue_category).label} · "
-                f"{Responsibility(responsibility).label}"
-            ),
+            "title": " · ".join(title_parts),
             "created_at": timestamp,
             "updated_at": timestamp,
             "source": source,
             "source_range": source_range,
             "platform": platform,
+            "sku": sku,
             "issue_category": issue_category,
             "responsibility": responsibility,
             "record_ids": record_ids,
@@ -318,6 +332,7 @@ def _matching_record_ids(
     responsibility: str,
     source_range: str,
     now: datetime,
+    sku: str = "",
 ) -> list[str]:
     cutoff = (
         None
@@ -339,6 +354,7 @@ def _matching_record_ids(
                 platform=platform,
                 issue_category=issue_category,
                 responsibility=responsibility,
+                sku=sku,
             )
             and isinstance(record.get("id"), str)
         ):
@@ -407,6 +423,7 @@ def _window_evidence(
                 platform=_text(task.get("platform")),
                 issue_category=_text(task.get("issue_category")),
                 responsibility=_text(task.get("responsibility")),
+                sku=_text(task.get("sku")),
             )
         ):
             record_ids.append(record_id)
@@ -424,6 +441,7 @@ def _significant_increase(
     issue_category: str,
     responsibility: str,
     now: datetime,
+    sku: str = "",
 ) -> bool:
     current_start = now - timedelta(days=7)
     previous_start = current_start - timedelta(days=7)
@@ -440,6 +458,7 @@ def _significant_increase(
                 platform=platform,
                 issue_category=issue_category,
                 responsibility=responsibility,
+                sku=sku,
             )
         ):
             continue
@@ -456,12 +475,15 @@ def _record_matches_cluster(
     platform: str,
     issue_category: str,
     responsibility: str,
+    sku: str = "",
 ) -> bool:
     analysis = _mapping(record.get("analysis"))
     request = _mapping(analysis.get("request"))
     attribution = _mapping(analysis.get("attribution"))
+    record_sku = _text(request.get("sku"))
     return (
         _text(request.get("platform")).casefold() == platform.casefold()
+        and (not sku or record_sku.casefold() == sku.casefold())
         and _text(attribution.get("issue_category")) == issue_category
         and _text(attribution.get("primary_responsibility")) == responsibility
     )
@@ -510,18 +532,27 @@ def _with_effect_review_state(task: dict, now: datetime) -> dict:
     }
 
 
-def _task_key(task: Mapping[str, object]) -> tuple[str, str, str]:
+def _task_key(task: Mapping[str, object]) -> tuple[str, str, str, str]:
     return _cluster_key(
         _text(task.get("platform")),
         _text(task.get("issue_category")),
         _text(task.get("responsibility")),
+        _text(task.get("sku")),
     )
 
 
 def _cluster_key(
-    platform: str, issue_category: str, responsibility: str
-) -> tuple[str, str, str]:
-    return platform.strip().casefold(), issue_category.strip(), responsibility.strip()
+    platform: str,
+    issue_category: str,
+    responsibility: str,
+    sku: str = "",
+) -> tuple[str, str, str, str]:
+    return (
+        platform.strip().casefold(),
+        sku.strip().casefold(),
+        issue_category.strip(),
+        responsibility.strip(),
+    )
 
 
 def _issue_category(value: object) -> str:
@@ -563,6 +594,22 @@ def _optional_choice(value: object, allowed: set[str], field: str) -> str:
 def _optional_due_date(value: object) -> str:
     cleaned = _text(value)
     return _due_date(cleaned) if cleaned else ""
+
+
+def _optional_bounded_text(
+    value: object,
+    field: str,
+    *,
+    max_length: int,
+) -> str:
+    if value in (None, ""):
+        return ""
+    if not isinstance(value, str):
+        raise TaskValidationError(f"{field}必须是字符串")
+    cleaned = value.strip()
+    if len(cleaned) > max_length:
+        raise TaskValidationError(f"{field}不能超过 {max_length} 个字符")
+    return cleaned
 
 
 def _due_date(value: object) -> str:
