@@ -272,6 +272,28 @@ def test_styles_cover_enhanced_workbench_components(tmp_path):
     assert "@media (max-width: 720px)" in css
 
 
+def test_styles_cover_product_fields_insights_and_mobile(tmp_path):
+    client = TestClient(create_app(storage_path=tmp_path / "analyses.jsonl"))
+    css = client.get("/static/styles.css").text
+
+    assert ".product-fields" in css
+    assert ".product-insights" in css
+    assert ".product-coverage" in css
+    assert ".sku-trend-list" in css
+    assert ".task-sku" in css
+    mobile = css.split("@media (max-width: 720px)", 1)[1]
+    assert ".product-fields" in mobile
+
+
+def test_readme_documents_product_dimensions():
+    readme = Path("README.md").read_text(encoding="utf-8")
+
+    assert "SKU/ASIN/店铺维度" in readme
+    assert "seller_sku" in readme
+    assert "平台商品 ID" in readme
+    assert "SKU 范围任务" in readme
+
+
 def test_analyze_batch_file_returns_multiple_records(tmp_path):
     app = create_app(storage_path=tmp_path / "analyses.jsonl")
     client = TestClient(app)

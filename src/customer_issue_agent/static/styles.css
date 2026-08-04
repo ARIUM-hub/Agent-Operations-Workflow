@@ -381,6 +381,42 @@ textarea:focus-visible {
   background: rgba(255, 255, 255, 0.62);
 }
 
+.product-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.product-insights {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.product-insights h3,
+.product-insights h4 {
+  margin: 0;
+}
+
+.product-coverage {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0;
+}
+
+.sku-trend-list {
+  margin-top: 12px;
+}
+
+.task-sku {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #e6f1ec;
+  color: #275849;
+  font-weight: 700;
+}
+
 .filter-field {
   display: grid;
   gap: 6px;
@@ -1057,6 +1093,11 @@ textarea:focus-visible {
   .result-grid,
   .batch-summary-grid,
   .record-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .product-fields,
+  .product-coverage {
     grid-template-columns: 1fr;
   }
 
