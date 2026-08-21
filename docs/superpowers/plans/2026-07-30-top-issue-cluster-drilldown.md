@@ -439,7 +439,7 @@ $targetRef = 'refs/heads/codex/customer-issue-agent-mvp'
 $remoteLine = git ls-remote $targetUrl $targetRef
 if (-not $remoteLine) { Write-Error 'target branch not found'; exit 1 }
 $remoteHead = ($remoteLine -split "`t")[0]
-$pushPath = 'C:\Users\DF\Documents\开发智能体\.worktrees\top-issue-cluster-drilldown-clean-push'
+$pushPath = Join-Path $env:USERPROFILE 'Documents\开发智能体\.worktrees\top-issue-cluster-drilldown-clean-push'
 if (Test-Path -LiteralPath $pushPath) { Write-Error "clean push worktree path already exists: $pushPath"; exit 1 }
 
 git cat-file -e "$remoteHead^{commit}" 2>$null
@@ -458,7 +458,7 @@ Run in the clean push worktree:
 
 ```powershell
 $OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-$sourcePath = 'C:\Users\DF\Documents\开发智能体\.worktrees\customer-issue-agent-mvp-continued'
+$sourcePath = Join-Path $env:USERPROFILE 'Documents\开发智能体\.worktrees\customer-issue-agent-mvp-continued'
 $sourceBranch = 'codex/customer-issue-agent-mvp'
 $designCommit = git -C $sourcePath log --format='%H' --grep='^docs: design top issue cluster drilldown$' -1 $sourceBranch
 $planCommit = git -C $sourcePath log --format='%H' --grep='^docs: plan top issue cluster drilldown$' -1 $sourceBranch
@@ -525,7 +525,7 @@ Expected: PR #2 remains `OPEN`, and both commands report the same SHA as `$pushH
 Run from the development worktree:
 
 ```powershell
-$pushPath = 'C:\Users\DF\Documents\开发智能体\.worktrees\top-issue-cluster-drilldown-clean-push'
+$pushPath = Join-Path $env:USERPROFILE 'Documents\开发智能体\.worktrees\top-issue-cluster-drilldown-clean-push'
 $resolved = (Resolve-Path -LiteralPath $pushPath).Path
 $expected = [System.IO.Path]::GetFullPath($pushPath)
 if (-not [string]::Equals($resolved, $expected, [System.StringComparison]::OrdinalIgnoreCase)) {
