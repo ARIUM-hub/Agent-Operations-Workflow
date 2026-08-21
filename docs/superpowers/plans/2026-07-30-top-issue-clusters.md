@@ -577,7 +577,7 @@ Run:
 
 ```powershell
 $OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-$pushPath = 'C:\Users\DF\Documents\开发智能体\.worktrees\top-issue-clusters-clean-push'
+$pushPath = Join-Path $env:USERPROFILE 'Documents\开发智能体\.worktrees\top-issue-clusters-clean-push'
 if (Test-Path -LiteralPath $pushPath) { Write-Error "clean push worktree path already exists: $pushPath"; exit 1 }
 git worktree add -b codex/top-issue-clusters-clean-push $pushPath 9faff4579c38ce93012edb188dae7f81ee327b7e
 ```
@@ -585,8 +585,8 @@ git worktree add -b codex/top-issue-clusters-clean-push $pushPath 9faff4579c38ce
 Then in the clean worktree:
 
 ```powershell
-cd 'C:\Users\DF\Documents\开发智能体\.worktrees\top-issue-clusters-clean-push'
-$sourcePath = 'C:\Users\DF\Documents\开发智能体\.worktrees\customer-issue-agent-mvp-continued'
+Set-Location (Join-Path $env:USERPROFILE 'Documents\开发智能体\.worktrees\top-issue-clusters-clean-push')
+$sourcePath = Join-Path $env:USERPROFILE 'Documents\开发智能体\.worktrees\customer-issue-agent-mvp-continued'
 $sourceBranch = 'codex/customer-issue-agent-mvp'
 $designCommit = git -C $sourcePath log --format='%H' --grep='^docs: design top issue clusters$' -1 $sourceBranch
 $backendCommit = git -C $sourcePath log --format='%H' --grep='^feat: aggregate top issue clusters$' -1 $sourceBranch
@@ -619,8 +619,8 @@ Expected: PR #2 is `OPEN`, and `headRefOid` matches the pushed remote branch SHA
 Run:
 
 ```powershell
-cd 'C:\Users\DF\Documents\开发智能体\.worktrees\customer-issue-agent-mvp-continued'
-$pushPath = 'C:\Users\DF\Documents\开发智能体\.worktrees\top-issue-clusters-clean-push'
+Set-Location (Join-Path $env:USERPROFILE 'Documents\开发智能体\.worktrees\customer-issue-agent-mvp-continued')
+$pushPath = Join-Path $env:USERPROFILE 'Documents\开发智能体\.worktrees\top-issue-clusters-clean-push'
 $resolved = (Resolve-Path -LiteralPath $pushPath).Path
 if ($resolved -ne $pushPath) { Write-Error "unexpected push path: $resolved"; exit 1 }
 git worktree remove $pushPath
