@@ -535,3 +535,30 @@ test("任务记录下钻设置保存范围和精确问题簇并保留关键词�
   assert.equal(elements.get("feedback-filter").value, "unreviewed");
   assert.deepEqual(calls, ["filters", "summary", "scroll"]);
 });
+
+test("任务卡关联记录点击把 SKU 传给下钻", () => {
+  const { context } = loadApp();
+  const recordsButton = new FakeElement();
+  const card = new FakeElement({
+    dataset: {
+      taskId: "task-one",
+      taskSourceRange: "all",
+      taskPlatform: "Amazon",
+      taskSku: "SKU-01",
+      taskIssueCategory: "function_use",
+      taskResponsibility: "customer_service_training",
+    },
+  });
+  card.setSelector("[data-task-records]", recordsButton);
+  const root = new FakeElement();
+  root.setSelector("[data-task-id]", [card]);
+  let received = null;
+  context.drilldownTaskRecords = (taskData) => {
+    received = taskData;
+  };
+
+  context.bindTaskActions(root);
+  recordsButton.listeners.get("click")();
+
+  assert.equal(received.sku, "SKU-01");
+});

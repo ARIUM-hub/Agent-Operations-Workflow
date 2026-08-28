@@ -54,6 +54,93 @@ def test_analyze_rejects_empty_text(tmp_path):
     assert response.status_code == 422
 
 
+def test_analyze_endpoint_saves_trimmed_product_metadata(tmp_path):
+    client = TestClient(create_app(storage_path=tmp_path / "analyses.jsonl"))
+
+    response = client.post(
+        "/api/analyze",
+        data={
+            "platform": "Amazon",
+            "conversation_text": "Customer: it is broken",
+            "store_name": "  US Store  ",
+            "sku": "  SKU-01  ",
+            "platform_product_id": "  B0ABC  ",
+        },
+    )
+
+    assert response.status_code == 200
+    request = response.json()["analysis"]["request"]
+    assert request["store_name"] == "US Store"
+    assert request["sku"] == "SKU-01"
+    assert request["platform_product_id"] == "B0ABC"
+
+
+def test_analyze_file_uses_file_metadata_before_form_defaults(tmp_path):
+    client = TestClient(create_app(storage_path=tmp_path / "analyses.jsonl"))
+    content = b"speaker,message,sku,asin\nCustomer,it is broken,FILE-SKU,B0FILE\n"
+
+    response = client.post(
+        "/api/analyze-file",
+        data={
+            "platform": "Amazon",
+            "sku": "FORM-SKU",
+            "platform_product_id": "FORM-ID",
+        },
+        files={"file": ("conversation.csv", content, "text/csv")},
+    )
+
+    assert response.status_code == 200
+    request = response.json()["analysis"]["request"]
+    assert request["sku"] == "FILE-SKU"
+    assert request["platform_product_id"] == "B0FILE"
+
+
+def test_batch_endpoint_uses_row_product_metadata_and_form_fallback(tmp_path):
+    storage_path = tmp_path / "analyses.jsonl"
+    client = TestClient(create_app(storage_path=storage_path))
+    content = (
+        "conversation,sku,store\n"
+        "Customer: first broken,ROW-SKU,Row Store\n"
+        "Customer: second broken,,\n"
+    ).encode("utf-8")
+
+    response = client.post(
+        "/api/analyze-batch-file",
+        data={
+            "platform": "Amazon",
+            "sku": "DEFAULT-SKU",
+            "store_name": "Default Store",
+        },
+        files={"file": ("batch.csv", content, "text/csv")},
+    )
+
+    assert response.status_code == 200
+    requests = [item["analysis"]["request"] for item in response.json()["records"]]
+    assert requests[0]["sku"] == "ROW-SKU"
+    assert requests[0]["store_name"] == "Row Store"
+    assert requests[1]["sku"] == "DEFAULT-SKU"
+    assert requests[1]["store_name"] == "Default Store"
+
+
+def test_batch_endpoint_validates_all_product_fields_before_writing(tmp_path):
+    storage_path = tmp_path / "analyses.jsonl"
+    client = TestClient(create_app(storage_path=storage_path))
+    content = (
+        "conversation,sku\n"
+        "Customer: valid,SKU-01\n"
+        f"Customer: invalid,{'x' * 201}\n"
+    ).encode("utf-8")
+
+    response = client.post(
+        "/api/analyze-batch-file",
+        data={"platform": "Amazon"},
+        files={"file": ("batch.csv", content, "text/csv")},
+    )
+
+    assert response.status_code == 422
+    assert not storage_path.exists()
+
+
 def test_index_renders_workbench(tmp_path):
     app = create_app(storage_path=tmp_path / "analyses.jsonl")
     client = TestClient(app)
@@ -63,6 +150,21 @@ def test_index_renders_workbench(tmp_path):
     assert response.status_code == 200
     assert "客户使用问题归因智能体" in response.text
     assert "conversation_text" in response.text
+
+
+def test_index_contains_product_inputs_filters_and_task_sku_field(tmp_path):
+    client = TestClient(create_app(storage_path=tmp_path / "analyses.jsonl"))
+
+    html = client.get("/").text
+
+    for form_prefix in ("paste", "upload", "batch"):
+        assert f'id="{form_prefix}-store-name"' in html
+        assert f'id="{form_prefix}-sku"' in html
+        assert f'id="{form_prefix}-platform-product-id"' in html
+    assert 'id="store-filter"' in html
+    assert 'id="sku-filter"' in html
+    assert 'id="platform-product-id-filter"' in html
+    assert '<input type="hidden" name="sku">' in html
 
 
 def test_analyze_text_response_exposes_fields_for_ui(tmp_path):
@@ -168,6 +270,28 @@ def test_styles_cover_enhanced_workbench_components(tmp_path):
     assert ".batch-summary-grid" in css
     assert ".batch-summary-card" in css
     assert "@media (max-width: 720px)" in css
+
+
+def test_styles_cover_product_fields_insights_and_mobile(tmp_path):
+    client = TestClient(create_app(storage_path=tmp_path / "analyses.jsonl"))
+    css = client.get("/static/styles.css").text
+
+    assert ".product-fields" in css
+    assert ".product-insights" in css
+    assert ".product-coverage" in css
+    assert ".sku-trend-list" in css
+    assert ".task-sku" in css
+    mobile = css.split("@media (max-width: 720px)", 1)[1]
+    assert ".product-fields" in mobile
+
+
+def test_readme_documents_product_dimensions():
+    readme = Path("README.md").read_text(encoding="utf-8")
+
+    assert "SKU/ASIN/店铺维度" in readme
+    assert "seller_sku" in readme
+    assert "平台商品 ID" in readme
+    assert "SKU 范围任务" in readme
 
 
 def test_analyze_batch_file_returns_multiple_records(tmp_path):
@@ -683,12 +807,27 @@ def test_static_app_js_contains_filtered_export_hooks(tmp_path):
     assert "latestExportCountRequestId" in script
 
 
-def _stored_record(record_id: str, *, platform: str, created_at: datetime, issue_category: str = "function_use") -> dict:
+def _stored_record(
+    record_id: str,
+    *,
+    platform: str,
+    created_at: datetime,
+    issue_category: str = "function_use",
+    store_name: str = "",
+    sku: str = "",
+    platform_product_id: str = "",
+) -> dict:
     return {
         "id": record_id,
         "created_at": created_at.isoformat(),
         "analysis": {
-            "request": {"platform": platform, "conversation_text": "Customer: not working"},
+            "request": {
+                "platform": platform,
+                "conversation_text": "Customer: not working",
+                "store_name": store_name,
+                "sku": sku,
+                "platform_product_id": platform_product_id,
+            },
             "attribution": {
                 "customer_problem": f"{platform} 客户反馈无法使用",
                 "issue_category": issue_category,
@@ -709,6 +848,89 @@ def _write_jsonl_records(path, records):
     with path.open("w", encoding="utf-8", newline="\n") as handle:
         for record in records:
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def test_product_filters_match_export_and_count_endpoints(tmp_path):
+    storage_path = tmp_path / "analyses.jsonl"
+    now = datetime.now(UTC)
+    _write_jsonl_records(
+        storage_path,
+        [
+            _stored_record(
+                "one",
+                platform="Amazon",
+                created_at=now,
+                store_name="US Flagship",
+                sku="SKU-1",
+                platform_product_id="B001",
+            ),
+            _stored_record(
+                "ten",
+                platform="Amazon",
+                created_at=now,
+                store_name="US Flagship",
+                sku="SKU-10",
+                platform_product_id="B0010",
+            ),
+        ],
+    )
+    client = TestClient(create_app(storage_path=storage_path))
+    params = {
+        "store_name": "flag",
+        "sku": "sku-1",
+        "platform_product_id": "b001",
+    }
+
+    csv_response = client.get("/api/records/export.csv", params=params)
+    count_response = client.get("/api/records/export-count", params=params)
+
+    assert csv_response.status_code == 200
+    assert count_response.json() == {"count": 1}
+    decoded = csv_response.content.decode("utf-8-sig")
+    assert "SKU-1" in decoded
+    assert "SKU-10" not in decoded
+
+
+def test_task_api_creates_sku_scoped_task_and_rejects_overlong_sku(tmp_path):
+    storage_path = tmp_path / "analyses.jsonl"
+    task_path = tmp_path / "tasks.jsonl"
+    now = datetime.now(UTC)
+    _write_jsonl_records(
+        storage_path,
+        [
+            _stored_record(
+                "sku-one",
+                platform="Amazon",
+                created_at=now,
+                sku="SKU-01",
+            ),
+            _stored_record(
+                "sku-ten",
+                platform="Amazon",
+                created_at=now,
+                sku="SKU-010",
+            ),
+        ],
+    )
+    client = TestClient(
+        create_app(storage_path=storage_path, task_storage_path=task_path)
+    )
+    form = {
+        "source": "summary",
+        "source_range": "all",
+        "platform": "Amazon",
+        "sku": "SKU-01",
+        "issue_category": "function_use",
+        "responsibility": "customer_service_training",
+    }
+
+    created = client.post("/api/tasks", data=form)
+    invalid = client.post("/api/tasks", data={**form, "sku": "x" * 201})
+
+    assert created.status_code == 201
+    assert created.json()["task"]["sku"] == "SKU-01"
+    assert created.json()["task"]["record_ids"] == ["sku-one"]
+    assert invalid.status_code == 422
 
 
 def _completed_task_event(now: datetime) -> dict:

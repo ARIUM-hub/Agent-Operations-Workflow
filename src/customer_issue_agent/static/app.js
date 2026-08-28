@@ -308,13 +308,21 @@ function batchSummaryDistribution(title, labelGroup, items = []) {
 function buildRecordCard(payload) {
   const analysis = payload.analysis;
   const attribution = analysis.attribution;
+  const request = analysis.request;
   const article = document.createElement("article");
   article.className = "record result-record";
   article.dataset.recordId = payload.record_id;
+  article.dataset.platform = request.platform || "";
+  article.dataset.storeName = request.store_name || "";
+  article.dataset.sku = request.sku || "";
+  article.dataset.platformProductId = request.platform_product_id || "";
+  article.dataset.issueCategory = attribution.issue_category || "";
+  article.dataset.responsibility = attribution.primary_responsibility || "";
   article.dataset.feedbackStatus = "unreviewed";
   article.innerHTML = `
     <div class="record-meta" data-record-meta>
       <strong>${escapeHtml(analysis.request.platform)}</strong>
+      ${productMetaHtml(request)}
       <span>${labelFor("issue_category", attribution.issue_category)}</span>
       <span>${labelFor("responsibility", attribution.primary_responsibility)}</span>
       <span>${labelFor("evidence", attribution.evidence_strength)}</span>
@@ -442,6 +450,7 @@ function prependRecentRecord(payload) {
   const list = document.getElementById("recent-records");
   const analysis = payload.analysis;
   const attribution = analysis.attribution;
+  const request = analysis.request;
   const empty = list.querySelector(".empty");
   if (empty) {
     empty.remove();
@@ -450,16 +459,27 @@ function prependRecentRecord(payload) {
   const article = document.createElement("article");
   article.className = "record";
   article.dataset.recordId = payload.record_id;
-  article.dataset.platform = analysis.request.platform;
+  article.dataset.platform = request.platform;
+  article.dataset.storeName = request.store_name || "";
+  article.dataset.sku = request.sku || "";
+  article.dataset.platformProductId = request.platform_product_id || "";
   article.dataset.issueCategory = attribution.issue_category;
   article.dataset.responsibility = attribution.primary_responsibility;
-  const searchBaseText = `${payload.record_id} ${analysis.request.platform} ${analysis.report}`;
+  const searchBaseText = [
+    payload.record_id,
+    request.platform,
+    request.store_name,
+    request.sku,
+    request.platform_product_id,
+    analysis.report,
+  ].filter(Boolean).join(" ");
   article.dataset.feedbackStatus = "unreviewed";
   article.dataset.searchBaseText = searchBaseText;
   article.dataset.searchText = searchBaseText;
   article.innerHTML = `
     <div class="record-meta" data-record-meta>
       <strong>${escapeHtml(analysis.request.platform)}</strong>
+      ${productMetaHtml(request)}
       <span>${labelFor("issue_category", attribution.issue_category)}</span>
       <span>${labelFor("responsibility", attribution.primary_responsibility)}</span>
       <span>${labelFor("evidence", attribution.evidence_strength)}</span>
@@ -480,6 +500,14 @@ function resultCard(title, body) {
       <p>${escapeHtml(body || "暂无信息。")}</p>
     </article>
   `;
+}
+
+function productMetaHtml(request = {}) {
+  return [
+    request.store_name ? `<span>${escapeHtml(request.store_name)}</span>` : "",
+    request.sku ? `<span>SKU ${escapeHtml(request.sku)}</span>` : "",
+    request.platform_product_id ? `<span>${escapeHtml(request.platform_product_id)}</span>` : "",
+  ].join("");
 }
 
 function labelFor(group, value) {
@@ -579,9 +607,49 @@ function renderIssueTrends(trends) {
       <h3>变化最大的 Top 5 问题簇</h3>
       ${issueTrendRows(trends.clusters || [])}
     </article>
+    <article class="summary-card trend-card sku-trend-card">
+      <h3>变化最大的 Top 5 SKU 问题簇</h3>
+      ${skuTrendRows(trends.sku_clusters || [])}
+    </article>
   `;
   bindIssueTrendFilters(container);
+  bindSkuInsightFilters(container);
   bindTaskCreateButtons(container);
+}
+
+function skuTrendRows(items = []) {
+  const visible = items.slice(0, 5);
+  if (!visible.length) {
+    return '<p class="trend-empty">当前周期暂无 SKU 变化。</p>';
+  }
+  return `<ul class="trend-list sku-trend-list">${visible.map(skuTrendRow).join("")}</ul>`;
+}
+
+function skuTrendRow(item) {
+  const platform = String(item.platform || "").trim();
+  const sku = String(item.sku || "").trim();
+  const issueCategory = String(item.issue_category || "").trim();
+  const responsibility = String(item.responsibility || "").trim();
+  const delta = Number(item.delta) || 0;
+  const alert = item.significant_increase ? '<span class="trend-alert">明显上升</span>' : "";
+  return `
+    <li class="trend-row issue-cluster-actions">
+      <button
+        class="trend-row-button"
+        type="button"
+        data-sku-trend-filter
+        data-platform="${escapeHtml(platform)}"
+        data-sku="${escapeHtml(sku)}"
+        data-issue-category="${escapeHtml(issueCategory)}"
+        data-responsibility="${escapeHtml(responsibility)}"
+        data-range="7d"
+      >
+        <span class="trend-cluster-label"><strong>${escapeHtml(sku)}</strong><small>${escapeHtml(platform)} / ${escapeHtml(labelFor("issue_category", issueCategory))}</small></span>
+        <span class="trend-counts"><span>本期 ${escapeHtml(item.current_count || 0)}</span><span>上期 ${escapeHtml(item.previous_count || 0)}</span><span class="trend-change">${escapeHtml(trendChangeLabel(delta))}</span>${alert}</span>
+      </button>
+      <button class="secondary-action task-create-trigger" type="button" data-task-create data-task-source="trend" data-task-platform="${escapeHtml(platform)}" data-task-sku="${escapeHtml(sku)}" data-task-issue-category="${escapeHtml(issueCategory)}" data-task-responsibility="${escapeHtml(responsibility)}" data-task-significant-increase="${item.significant_increase === true}">创建任务</button>
+    </li>
+  `;
 }
 
 function issueTrendRows(items = []) {
@@ -710,10 +778,83 @@ function renderRecordsSummary(summary) {
       ${summaryDistribution("证据强度", "evidence", summary.evidence_strengths)}
       ${summaryDistribution("复核状态", "feedback", summary.feedback_statuses)}
     </div>
+    <section class="product-insights" aria-label="商品维度">
+      <h3>商品维度</h3>
+      <div class="summary-metrics product-coverage">
+        ${summaryMetric("有 SKU", summary.product_coverage?.with_sku ?? 0)}
+        ${summaryMetric("未填写 SKU", summary.product_coverage?.missing_sku ?? 0)}
+      </div>
+      ${skuDistribution(summary.top_skus || [])}
+      ${skuIssueClusters(summary.top_sku_issue_clusters || [])}
+    </section>
   `;
   bindSummaryPlatformFilters(container);
   bindSummaryIssueClusterFilters(container);
+  bindSkuInsightFilters(container);
   bindTaskCreateButtons(container);
+}
+
+function skuDistribution(items = []) {
+  const rows = items.slice(0, 5).map((item) => `
+    <li>
+      <button type="button" class="summary-filter-link" data-top-sku-filter="${escapeHtml(item.sku || "")}">${escapeHtml(item.sku || "")}</button>
+      <span>${escapeHtml(item.count || 0)} 条 / ${escapeHtml(item.platform_count || 0)} 个平台</span>
+    </li>
+  `).join("") || '<li><span>暂无 SKU 数据</span><strong>0</strong></li>';
+  return `<article class="summary-card distribution-card"><h4>Top SKU</h4><ul class="distribution-list">${rows}</ul></article>`;
+}
+
+function skuIssueClusters(items = []) {
+  const rows = items.slice(0, 5).map((item) => `
+    <li class="issue-cluster-actions">
+      <button type="button" class="issue-cluster-filter" data-sku-cluster-filter data-platform="${escapeHtml(item.platform || "")}" data-sku="${escapeHtml(item.sku || "")}" data-issue-category="${escapeHtml(item.issue_category || "")}" data-responsibility="${escapeHtml(item.responsibility || "")}">
+        <span class="issue-cluster-label"><strong>${escapeHtml(item.sku || "")}</strong><small>${escapeHtml(item.platform || "")} / ${escapeHtml(labelFor("issue_category", item.issue_category))}</small></span><strong>${escapeHtml(item.count || 0)}</strong>
+      </button>
+      <button class="secondary-action task-create-trigger" type="button" data-task-create data-task-source="summary" data-task-platform="${escapeHtml(item.platform || "")}" data-task-sku="${escapeHtml(item.sku || "")}" data-task-issue-category="${escapeHtml(item.issue_category || "")}" data-task-responsibility="${escapeHtml(item.responsibility || "")}" data-task-significant-increase="false">创建任务</button>
+    </li>
+  `).join("") || '<li><span>暂无 SKU 问题簇</span><strong>0</strong></li>';
+  return `<article class="summary-card distribution-card sku-cluster-card"><h4>SKU 高频问题</h4><ul class="distribution-list">${rows}</ul></article>`;
+}
+
+function bindSkuInsightFilters(root = document) {
+  root.querySelectorAll("[data-top-sku-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const skuFilter = document.getElementById("sku-filter");
+      if (!skuFilter) return;
+      skuFilter.value = button.dataset.topSkuFilter || "";
+      refreshRecordFilterViews();
+      scrollToRecentRecords();
+    });
+  });
+  root.querySelectorAll("[data-sku-cluster-filter], [data-sku-trend-filter]").forEach((button) => {
+    button.addEventListener("click", () => applySkuClusterFilter({
+      platform: button.dataset.platform || "",
+      sku: button.dataset.sku || "",
+      issueCategory: button.dataset.issueCategory || "",
+      responsibility: button.dataset.responsibility || "",
+      range: button.dataset.range || "",
+    }));
+  });
+}
+
+function applySkuClusterFilter({ platform, sku, issueCategory, responsibility, range = "" }) {
+  const platformFilter = document.getElementById("platform-filter");
+  const skuFilter = document.getElementById("sku-filter");
+  const issueFilter = document.getElementById("issue-filter");
+  const responsibilityFilter = document.getElementById("responsibility-filter");
+  if (!platformFilter || !skuFilter || !issueFilter || !responsibilityFilter || !sku) return;
+  platformFilter.value = platform;
+  platformFilter.dataset.matchMode = "exact";
+  skuFilter.value = sku;
+  issueFilter.value = issueCategory;
+  responsibilityFilter.value = responsibility;
+  if (range) {
+    const summaryRange = document.getElementById("summary-range");
+    if (summaryRange) summaryRange.value = range;
+  }
+  refreshRecordFilterViews();
+  if (range) loadRecordsSummary();
+  scrollToRecentRecords();
 }
 
 function summaryIssueClusters(items = []) {
@@ -929,6 +1070,9 @@ function buildExportFilterParams() {
   const query = document.getElementById("record-search")?.value.trim() || "";
   const platformFilter = document.getElementById("platform-filter");
   const platform = platformFilter?.value.trim() || "";
+  const storeName = document.getElementById("store-filter")?.value.trim() || "";
+  const sku = document.getElementById("sku-filter")?.value.trim() || "";
+  const platformProductId = document.getElementById("platform-product-id-filter")?.value.trim() || "";
   const issue = document.getElementById("issue-filter")?.value || "";
   const responsibility = document.getElementById("responsibility-filter")?.value || "";
   const feedback = document.getElementById("feedback-filter")?.value || "";
@@ -945,6 +1089,9 @@ function buildExportFilterParams() {
       params.set("platform_match", "exact");
     }
   }
+  if (storeName) params.set("store_name", storeName);
+  if (sku) params.set("sku", sku);
+  if (platformProductId) params.set("platform_product_id", platformProductId);
   if (issue) {
     params.set("issue_category", issue);
   }
@@ -986,6 +1133,9 @@ function updateExportFilterSummary() {
 
   const query = document.getElementById("record-search")?.value.trim() || "";
   const platform = document.getElementById("platform-filter")?.value.trim() || "";
+  const storeName = document.getElementById("store-filter")?.value.trim() || "";
+  const sku = document.getElementById("sku-filter")?.value.trim() || "";
+  const platformProductId = document.getElementById("platform-product-id-filter")?.value.trim() || "";
   const issue = document.getElementById("issue-filter")?.value || "";
   const responsibility = document.getElementById("responsibility-filter")?.value || "";
   const feedback = document.getElementById("feedback-filter")?.value || "";
@@ -995,6 +1145,9 @@ function updateExportFilterSummary() {
   if (platform) {
     conditions.push(`平台：${platform}`);
   }
+  if (storeName) conditions.push(`店铺：${storeName}`);
+  if (sku) conditions.push(`SKU：${sku}`);
+  if (platformProductId) conditions.push(`平台商品 ID：${platformProductId}`);
   if (query) {
     conditions.push(`关键词：${query}`);
   }
@@ -1181,6 +1334,9 @@ function recordDetailHtml(recordId, analysis, feedback = null) {
       <p class="record-copy-status" data-record-copy-status aria-live="polite"></p>
       <dl class="record-detail-grid">
         ${recordDetailRow("客户问题", attribution.customer_problem)}
+        ${analysis.request.store_name ? recordDetailRow("店铺", analysis.request.store_name) : ""}
+        ${analysis.request.sku ? recordDetailRow("SKU", analysis.request.sku) : ""}
+        ${analysis.request.platform_product_id ? recordDetailRow("平台商品 ID", analysis.request.platform_product_id) : ""}
         ${recordDetailRow("问题类型", labelFor("issue_category", attribution.issue_category))}
         ${recordDetailRow("业务原因", listText((attribution.root_causes || []).map((item) => labelFor("rootCause", item))))}
         ${recordDetailRow("优先责任方", labelFor("responsibility", attribution.primary_responsibility))}
@@ -1241,6 +1397,9 @@ function applyRecordFilters() {
   const platformFilter = document.getElementById("platform-filter");
   const platform = platformFilter?.value.trim().toLowerCase() || "";
   const platformMatch = platformFilter?.dataset.matchMode || "";
+  const storeName = document.getElementById("store-filter")?.value.trim().toLowerCase() || "";
+  const sku = document.getElementById("sku-filter")?.value.trim().toLowerCase() || "";
+  const platformProductId = document.getElementById("platform-product-id-filter")?.value.trim().toLowerCase() || "";
   const issue = document.getElementById("issue-filter")?.value || "";
   const responsibility = document.getElementById("responsibility-filter")?.value || "";
   const feedback = document.getElementById("feedback-filter")?.value || "";
@@ -1249,7 +1408,17 @@ function applyRecordFilters() {
   records.forEach((record) => {
     const matches = recordMatchesFilters(
       record,
-      { query, platform, platformMatch, issue, responsibility, feedback },
+      {
+        query,
+        platform,
+        platformMatch,
+        storeName,
+        sku,
+        platformProductId,
+        issue,
+        responsibility,
+        feedback,
+      },
     );
     record.hidden = !matches;
     if (matches) {
@@ -1272,6 +1441,9 @@ function resetRecordFilters(form) {
 function recordMatchesFilters(record, filters) {
   const searchText = (record.dataset.searchText || "").toLowerCase();
   const platform = (record.dataset.platform || "").toLowerCase();
+  const storeName = (record.dataset.storeName || "").toLowerCase();
+  const sku = (record.dataset.sku || "").toLowerCase();
+  const platformProductId = (record.dataset.platformProductId || "").toLowerCase();
   const matchesQuery = !filters.query || searchText.includes(filters.query);
   const matchesPlatform = !filters.platform || (
     filters.platformMatch === "exact"
@@ -1279,9 +1451,19 @@ function recordMatchesFilters(record, filters) {
       : platform.includes(filters.platform)
   );
   const matchesIssue = !filters.issue || record.dataset.issueCategory === filters.issue;
+  const matchesStore = !filters.storeName || storeName.includes(filters.storeName);
+  const matchesSku = !filters.sku || sku === filters.sku;
+  const matchesProductId = !filters.platformProductId || platformProductId === filters.platformProductId;
   const matchesResponsibility = !filters.responsibility || record.dataset.responsibility === filters.responsibility;
   const matchesFeedback = !filters.feedback || record.dataset.feedbackStatus === filters.feedback;
-  return matchesQuery && matchesPlatform && matchesIssue && matchesResponsibility && matchesFeedback;
+  return matchesQuery
+    && matchesPlatform
+    && matchesStore
+    && matchesSku
+    && matchesProductId
+    && matchesIssue
+    && matchesResponsibility
+    && matchesFeedback;
 }
 
 function updateFilterState(visible, total) {
@@ -1397,6 +1579,7 @@ function taskCardHtml(task, now = new Date()) {
       data-task-id="${escapeHtml(task.id)}"
       data-task-source-range="${escapeHtml(task.source_range)}"
       data-task-platform="${escapeHtml(task.platform)}"
+      data-task-sku="${escapeHtml(task.sku || "")}"
       data-task-issue-category="${escapeHtml(task.issue_category)}"
       data-task-responsibility="${escapeHtml(task.responsibility)}"
     >
@@ -1406,6 +1589,7 @@ function taskCardHtml(task, now = new Date()) {
       </div>
       <div class="task-card-meta">
         <span class="task-source">${source}</span>
+        ${task.sku ? `<span class="task-sku">SKU ${escapeHtml(task.sku)}</span>` : ""}
         <span class="task-priority">${escapeHtml(labelFor("task_priority", task.priority))}优先级</span>
         ${overdue ? `<span class="task-overdue">已逾期</span>` : ""}
       </div>
@@ -1532,6 +1716,7 @@ function bindTaskCreateButtons(root = document) {
     button.addEventListener("click", () => openTaskCreateForm(createTaskDraft({
       source: button.dataset.taskSource || "summary",
       platform: button.dataset.taskPlatform || "",
+      sku: button.dataset.taskSku || "",
       issueCategory: button.dataset.taskIssueCategory || "",
       responsibility: button.dataset.taskResponsibility || "",
       significantIncrease: button.dataset.taskSignificantIncrease === "true",
@@ -1542,6 +1727,7 @@ function bindTaskCreateButtons(root = document) {
 function createTaskDraft({
   source,
   platform,
+  sku = "",
   issueCategory,
   responsibility,
   significantIncrease,
@@ -1554,6 +1740,7 @@ function createTaskDraft({
     source,
     sourceRange,
     platform,
+    sku,
     issueCategory,
     responsibility,
     significantIncrease,
@@ -1581,13 +1768,15 @@ function openTaskCreateForm(draft) {
   form.elements.source.value = draft.source;
   form.elements.source_range.value = draft.sourceRange;
   form.elements.platform.value = draft.platform;
+  if (form.elements.sku) form.elements.sku.value = draft.sku || "";
   form.elements.issue_category.value = draft.issueCategory;
   form.elements.responsibility.value = draft.responsibility;
   form.elements.team.value = draft.team;
   form.elements.priority.value = draft.priority;
   form.elements.due_date.value = draft.dueDate;
+  const titlePrefix = draft.sku ? `${draft.platform} · ${draft.sku}` : draft.platform;
   form.querySelector("[data-task-create-title]").textContent = (
-    `${draft.platform} · ${labelFor("issue_category", draft.issueCategory)} · `
+    `${titlePrefix} · ${labelFor("issue_category", draft.issueCategory)} · `
     + labelFor("responsibility", draft.responsibility)
   );
   form.querySelector("[data-task-create-source]").textContent = draft.source === "trend"
@@ -1789,6 +1978,7 @@ function bindTaskActions(root) {
       drilldownTaskRecords({
         source_range: card.dataset.taskSourceRange,
         platform: card.dataset.taskPlatform,
+        sku: card.dataset.taskSku,
         issue_category: card.dataset.taskIssueCategory,
         responsibility: card.dataset.taskResponsibility,
       });
@@ -1918,12 +2108,14 @@ function drilldownTaskRecords(task) {
   const platform = document.getElementById("platform-filter");
   const issue = document.getElementById("issue-filter");
   const responsibility = document.getElementById("responsibility-filter");
+  const sku = document.getElementById("sku-filter");
   if (!range || !platform || !issue || !responsibility) {
     return;
   }
   range.value = task.source_range || "all";
   platform.value = task.platform || "";
   platform.dataset.matchMode = "exact";
+  if (sku) sku.value = task.sku || "";
   issue.value = task.issue_category || "";
   responsibility.value = task.responsibility || "";
   refreshRecordFilterViews();

@@ -89,6 +89,9 @@ class MessageTurn(BaseModel):
 class AnalysisRequest(BaseModel):
     platform: str = Field(default="Unknown")
     conversation_text: str
+    store_name: str = Field(default="", max_length=200)
+    sku: str = Field(default="", max_length=200)
+    platform_product_id: str = Field(default="", max_length=200)
 
     @field_validator("platform", "conversation_text")
     @classmethod
@@ -97,6 +100,15 @@ class AnalysisRequest(BaseModel):
         if not stripped:
             raise ValueError("字段不能为空")
         return stripped
+
+    @field_validator("store_name", "sku", "platform_product_id", mode="before")
+    @classmethod
+    def trim_optional_product_text(cls, value: object) -> str:
+        if value is None:
+            return ""
+        if not isinstance(value, str):
+            raise ValueError("商品字段必须是字符串")
+        return value.strip()
 
 
 class ParsedConversation(BaseModel):

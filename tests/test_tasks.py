@@ -26,6 +26,7 @@ def _record(
     issue_category: str = "function_use",
     responsibility: str = "customer_service_training",
     created_at: datetime | str | None = None,
+    sku: str = "",
 ) -> dict:
     timestamp = (
         created_at
@@ -39,6 +40,7 @@ def _record(
             "request": {
                 "platform": platform,
                 "conversation_text": "Customer: help",
+                "sku": sku,
             },
             "attribution": {
                 "issue_category": issue_category,
@@ -68,6 +70,114 @@ def _payload(**overrides) -> dict:
         "responsibility": "customer_service_training",
         **overrides,
     }
+
+
+def test_sku_task_snapshot_is_exact_and_deduplicates_case_insensitively(tmp_path):
+    service, task_store = _service(
+        tmp_path,
+        [
+            _record("sku-one", sku="SKU-01"),
+            _record("sku-case", sku="sku-01"),
+            _record("sku-ten", sku="SKU-010"),
+            _record("legacy", sku=""),
+        ],
+    )
+
+    sku_task, created = service.create_task(
+        _payload(sku="SKU-01"),
+        now=NOW,
+        today=TODAY,
+    )
+    duplicate, duplicate_created = service.create_task(
+        _payload(sku="sku-01"),
+        now=NOW,
+        today=TODAY,
+    )
+    general_task, general_created = service.create_task(
+        _payload(sku=""),
+        now=NOW,
+        today=TODAY,
+    )
+
+    assert created is True
+    assert duplicate_created is False
+    assert duplicate["id"] == sku_task["id"]
+    assert sku_task["record_ids"] == ["sku-one", "sku-case"]
+    assert general_created is True
+    assert general_task["id"] != sku_task["id"]
+    assert len(task_store.list_tasks()) == 2
+
+
+def test_sku_trend_task_recomputes_significant_increase_for_same_sku(tmp_path):
+    records = [
+        _record(
+            f"current-{index}",
+            created_at=NOW - timedelta(days=index + 1),
+            sku="SKU-01",
+        )
+        for index in range(3)
+    ]
+    records.extend(
+        [
+            _record("previous", created_at=NOW - timedelta(days=8), sku="sku-01"),
+            _record(
+                "other-current-1",
+                created_at=NOW - timedelta(days=1),
+                sku="SKU-02",
+            ),
+            _record(
+                "other-current-2",
+                created_at=NOW - timedelta(days=2),
+                sku="SKU-02",
+            ),
+        ]
+    )
+    service, _ = _service(tmp_path, records)
+
+    task, _ = service.create_task(
+        _payload(source="trend", source_range="30d", sku="SKU-01"),
+        now=NOW,
+        today=TODAY,
+    )
+
+    assert task["source_range"] == "7d"
+    assert task["record_ids"] == ["current-0", "current-1", "current-2"]
+    assert task["significant_increase"] is True
+    assert task["priority"] == "high"
+
+
+def test_sku_task_recomputes_trend_and_effect_windows_for_same_sku(tmp_path):
+    completed_at = NOW + timedelta(days=1)
+    records = [
+        _record("baseline-sku", created_at=NOW - timedelta(days=1), sku="SKU-01"),
+        _record("baseline-other", created_at=NOW - timedelta(days=1), sku="SKU-02"),
+        _record(
+            "effect-sku",
+            created_at=completed_at + timedelta(days=1),
+            sku="sku-01",
+        ),
+        _record(
+            "effect-other",
+            created_at=completed_at + timedelta(days=1),
+            sku="SKU-02",
+        ),
+    ]
+    service, _ = _service(tmp_path, records)
+    task, _ = service.create_task(_payload(sku="SKU-01"), now=NOW, today=TODAY)
+    service.update_task(task["id"], {"status": "in_progress"}, now=NOW)
+    service.update_task(
+        task["id"],
+        {"status": "completed", "result": "已修复 SKU 页面"},
+        now=completed_at,
+    )
+
+    review = service.get_effect_review(
+        task["id"],
+        now=completed_at + timedelta(days=7),
+    )
+
+    assert review["evidence"]["baseline"]["record_ids"] == ["baseline-sku"]
+    assert review["evidence"]["effect"]["record_ids"] == ["effect-sku"]
 
 
 def _completed_task(service: TaskService, *, completed_at: datetime) -> dict:

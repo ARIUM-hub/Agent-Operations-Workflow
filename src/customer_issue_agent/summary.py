@@ -4,6 +4,7 @@ from collections import Counter
 from typing import Any
 
 IssueClusterKey = tuple[str, str, str]
+SkuIssueClusterKey = tuple[str, str, str, str]
 
 
 def build_records_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
@@ -13,6 +14,13 @@ def build_records_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
     evidence_strengths: Counter[str] = Counter()
     feedback_statuses: Counter[str] = Counter()
     issue_clusters: Counter[IssueClusterKey] = Counter()
+    sku_display: dict[str, str] = {}
+    sku_counts: Counter[str] = Counter()
+    sku_platforms: dict[str, dict[str, str]] = {}
+    sku_issue_clusters: Counter[SkuIssueClusterKey] = Counter()
+    sku_issue_display: dict[SkuIssueClusterKey, str] = {}
+    sku_issue_platform_display: dict[SkuIssueClusterKey, str] = {}
+    missing_sku = 0
     reviewed_records = 0
     corrected_records = 0
 
@@ -28,6 +36,26 @@ def build_records_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
         responsibilities[responsibility] += 1
         evidence_strengths[_value(attribution.get("evidence_strength"))] += 1
         issue_clusters[(platform, issue_category, responsibility)] += 1
+        sku = _optional_value(request.get("sku"))
+        if not sku:
+            missing_sku += 1
+        else:
+            sku_key = sku.casefold()
+            sku_display.setdefault(sku_key, sku)
+            sku_counts[sku_key] += 1
+            sku_platforms.setdefault(sku_key, {}).setdefault(
+                platform.casefold(),
+                platform,
+            )
+            cluster_key = (
+                platform.casefold(),
+                sku_key,
+                issue_category,
+                responsibility,
+            )
+            sku_issue_clusters[cluster_key] += 1
+            sku_issue_display.setdefault(cluster_key, sku)
+            sku_issue_platform_display.setdefault(cluster_key, platform)
 
         status = _feedback_status(record.get("feedback"))
         feedback_statuses[status] += 1
@@ -46,6 +74,16 @@ def build_records_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
         "evidence_strengths": _rank(evidence_strengths),
         "feedback_statuses": _rank(feedback_statuses),
         "top_issue_clusters": _rank_issue_clusters(issue_clusters),
+        "product_coverage": {
+            "with_sku": sum(sku_counts.values()),
+            "missing_sku": missing_sku,
+        },
+        "top_skus": _rank_skus(sku_counts, sku_display, sku_platforms),
+        "top_sku_issue_clusters": _rank_sku_issue_clusters(
+            sku_issue_clusters,
+            sku_issue_display,
+            sku_issue_platform_display,
+        ),
     }
 
 
@@ -85,6 +123,67 @@ def _rank_issue_clusters(
             ),
         )[:limit]
     ]
+
+
+def _rank_skus(
+    counts: Counter[str],
+    display: dict[str, str],
+    platforms: dict[str, dict[str, str]],
+) -> list[dict[str, object]]:
+    return [
+        {
+            "sku": display[key],
+            "count": count,
+            "platform_count": len(platforms[key]),
+            "platforms": [
+                value
+                for _, value in sorted(
+                    platforms[key].items(),
+                    key=lambda item: (item[0], item[1]),
+                )
+            ],
+        }
+        for key, count in sorted(
+            counts.items(),
+            key=lambda item: (-item[1], item[0], display[item[0]]),
+        )
+    ]
+
+
+def _rank_sku_issue_clusters(
+    counter: Counter[SkuIssueClusterKey],
+    sku_display: dict[SkuIssueClusterKey, str],
+    platform_display: dict[SkuIssueClusterKey, str],
+    limit: int = 5,
+) -> list[dict[str, int | str]]:
+    ranked = sorted(
+        counter.items(),
+        key=lambda item: (
+            -item[1],
+            item[0][0],
+            item[0][1],
+            item[0][2].casefold(),
+            item[0][2],
+            item[0][3].casefold(),
+            item[0][3],
+        ),
+    )[:limit]
+    return [
+        {
+            "platform": platform_display[key],
+            "sku": sku_display[key],
+            "issue_category": key[2],
+            "responsibility": key[3],
+            "count": count,
+        }
+        for key, count in ranked
+    ]
+
+
+def _optional_value(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value.strip()
 
 
 def _value(value: object) -> str:
